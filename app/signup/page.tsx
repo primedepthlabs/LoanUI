@@ -15,10 +15,12 @@ import {
   CheckCircle,
   X,
   Trash2,
+  ShoppingCart,
+  QrCode,
+  IndianRupee,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
-// Type definitions
 interface FormData {
   name: string;
   age: string;
@@ -40,6 +42,11 @@ interface FormErrors {
 interface SuccessNotificationProps {
   message: string;
   onClose: () => void;
+}
+
+interface PaymentSettings {
+  qr_code_url: string;
+  payment_amount: number;
 }
 
 // Extend Window interface for TypeScript
@@ -105,7 +112,9 @@ const userService = {
       bankPassbook: string[];
       passportPhoto: string[];
     },
-    authUserId: string
+    authUserId: string,
+    paymentScreenshotUrl: string,
+    paymentAmount: number
   ) => {
     try {
       const { data, error } = await supabase
@@ -124,6 +133,10 @@ const userService = {
             passport_photo_urls: documentUrls.passportPhoto,
             kyc_status: "pending",
             kyc_submitted_at: new Date().toISOString(),
+            payment_screenshot_url: paymentScreenshotUrl,
+            payment_status: "pending",
+            payment_amount: paymentAmount,
+            payment_submitted_at: new Date().toISOString(),
           },
         ])
         .select()
@@ -211,10 +224,58 @@ const storageService = {
       return { success: false, error: (error as Error).message };
     }
   },
+  uploadPaymentScreenshot: async (file: File, userId: string) => {
+    try {
+      const fileExtension = file.name.split(".").pop();
+      const fileName = `${userId}/payment-screenshot-${Date.now()}.${fileExtension}`;
+
+      const { data, error } = await supabase.storage
+        .from("user-documents")
+        .upload(fileName, file, {
+          cacheControl: "3600",
+          upsert: true,
+        });
+
+      if (error) throw error;
+
+      const { data: publicUrlData } = supabase.storage
+        .from("user-documents")
+        .getPublicUrl(fileName);
+
+      return {
+        success: true,
+        publicUrl: publicUrlData.publicUrl,
+      };
+    } catch (error) {
+      console.error("Payment screenshot upload error:", error);
+      return { success: false, error: (error as Error).message };
+    }
+  },
+};
+
+const paymentService = {
+  getPaymentSettings: async () => {
+    try {
+      const { data, error } = await supabase
+        .from("payment_settings")
+        .select("qr_code_url, payment_amount")
+        .single();
+
+      if (error) throw error;
+      return { success: true, settings: data as PaymentSettings };
+    } catch (error) {
+      console.error("Payment settings fetch error:", error);
+      return { success: false, error: (error as Error).message };
+    }
+  },
 };
 
 const registrationService = {
-  completeRegistration: async (formData: FormData) => {
+  completeRegistration: async (
+    formData: FormData,
+    paymentScreenshot: File,
+    paymentAmount: number
+  ) => {
     try {
       // Check for existing email
       const emailCheck = await userService.checkEmailExists(formData.email);
@@ -234,6 +295,21 @@ const registrationService = {
       const userId = authResult.user?.id;
       if (!userId) {
         return { success: false, error: "Failed to create user account" };
+      }
+
+      // Upload payment screenshot first
+      const paymentUploadResult = await storageService.uploadPaymentScreenshot(
+        paymentScreenshot,
+        userId
+      );
+
+      if (!paymentUploadResult.success) {
+        await authService.signOut();
+        return {
+          success: false,
+          error:
+            "Failed to upload payment screenshot: " + paymentUploadResult.error,
+        };
       }
 
       // Upload all document photos
@@ -276,12 +352,15 @@ const registrationService = {
         passportPhoto: uploadResults[4]?.photos?.map((p) => p.publicUrl) || [],
       };
 
-      // Create user record with document URLs
+      // Create user record with document URLs and payment info
       const userResult = await userService.createUser(
         formData,
         documentUrls,
-        userId
+        userId,
+        paymentUploadResult.publicUrl,
+        paymentAmount
       );
+
       if (!userResult.success) {
         await authService.signOut();
         return { success: false, error: userResult.error };
@@ -290,7 +369,7 @@ const registrationService = {
       const totalPhotos = Object.values(documentUrls).flat().length;
       return {
         success: true,
-        message: `Registration successful! ${totalPhotos} document photos uploaded. Please check your email to verify your account.`,
+        message: `Registration successful! ${totalPhotos} document photos and payment screenshot uploaded. Your payment is under verification. Please check your email to verify your account.`,
         user: userResult.user,
       };
     } catch (error) {
@@ -326,6 +405,13 @@ const DocumentPhotoSignupForm: React.FC = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
 
+  // Payment modal states
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
+  const [paymentSettings, setPaymentSettings] =
+    useState<PaymentSettings | null>(null);
+  const [loadingPaymentSettings, setLoadingPaymentSettings] = useState(false);
+
   // Cleanup effect
   useEffect(() => {
     return () => {
@@ -334,6 +420,32 @@ const DocumentPhotoSignupForm: React.FC = () => {
       }
     };
   }, []);
+
+  // Fetch payment settings when modal opens
+  useEffect(() => {
+    if (showPaymentModal && !paymentSettings) {
+      fetchPaymentSettings();
+    }
+  }, [showPaymentModal]);
+
+  const fetchPaymentSettings = async () => {
+    setLoadingPaymentSettings(true);
+    try {
+      const result = await paymentService.getPaymentSettings();
+      if (result.success && result.settings) {
+        setPaymentSettings(result.settings);
+      } else {
+        alert("Failed to load payment settings. Please try again.");
+        setShowPaymentModal(false);
+      }
+    } catch (error) {
+      console.error("Error fetching payment settings:", error);
+      alert("Failed to load payment settings. Please try again.");
+      setShowPaymentModal(false);
+    } finally {
+      setLoadingPaymentSettings(false);
+    }
+  };
 
   // Success notification component
   const SuccessNotification: React.FC<SuccessNotificationProps> = ({
@@ -562,22 +674,62 @@ const DocumentPhotoSignupForm: React.FC = () => {
     }));
   };
 
-  const handleSubmit = async () => {
+  const handlePaymentScreenshotChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = ["image/jpeg", "image/jpg", "image/png"];
+    const maxSize = 5 * 1024 * 1024; // 5MB
+
+    if (!validTypes.includes(file.type)) {
+      alert("Please upload a valid image file (JPG, JPEG, PNG)");
+      return;
+    }
+
+    if (file.size > maxSize) {
+      alert("File must be less than 5MB");
+      return;
+    }
+
+    setPaymentScreenshot(file);
+  };
+
+  const handleCheckout = () => {
     if (!validateForm()) {
+      return;
+    }
+    setShowPaymentModal(true);
+  };
+
+  const handleCompleteRegistration = async () => {
+    if (!paymentScreenshot) {
+      alert("Please upload payment screenshot");
+      return;
+    }
+
+    if (!paymentSettings) {
+      alert("Payment settings not loaded");
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const result = await registrationService.completeRegistration(formData);
+      const result = await registrationService.completeRegistration(
+        formData,
+        paymentScreenshot,
+        paymentSettings.payment_amount
+      );
 
       if (result.success) {
         setSuccessMessage(
           result.message ||
-            "Registration successful! Please check your email to verify your account."
+            "Registration successful! Your payment is under verification. Please check your email to verify your account."
         );
         setShowSuccess(true);
+        setShowPaymentModal(false);
 
         // Reset form
         setFormData({
@@ -607,6 +759,7 @@ const DocumentPhotoSignupForm: React.FC = () => {
           if (fileInput) fileInput.value = "";
         });
 
+        setPaymentScreenshot(null);
         setErrors({});
       } else {
         const errorMessage = utils.formatError(result.error || "");
@@ -717,6 +870,138 @@ const DocumentPhotoSignupForm: React.FC = () => {
           message={successMessage}
           onClose={() => setShowSuccess(false)}
         />
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 sm:p-8 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+                Complete Payment
+              </h2>
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {loadingPaymentSettings ? (
+              <div className="flex justify-center items-center py-12">
+                <div className="w-8 h-8 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            ) : (
+              <>
+                {/* Payment Amount */}
+                <div className="mb-6 text-center bg-yellow-50 p-4 rounded-lg border-2 border-yellow-200">
+                  <p className="text-sm text-gray-600 mb-2">Amount to Pay</p>
+                  <div className="flex items-center justify-center text-4xl font-bold text-yellow-600">
+                    <IndianRupee className="w-8 h-8" />
+                    {paymentSettings?.payment_amount}
+                  </div>
+                </div>
+
+                {/* QR Code */}
+                <div className="mb-6">
+                  <p className="text-sm font-medium text-gray-700 mb-3 text-center">
+                    Scan QR Code to Pay
+                  </p>
+                  <div className="border-2 border-yellow-200 rounded-lg p-4 bg-yellow-50 flex justify-center">
+                    {paymentSettings?.qr_code_url ? (
+                      <img
+                        src={paymentSettings.qr_code_url}
+                        alt="Payment QR Code"
+                        className="w-64 h-64 object-contain"
+                      />
+                    ) : (
+                      <div className="w-64 h-64 flex items-center justify-center bg-white rounded">
+                        <QrCode className="w-16 h-16 text-gray-300" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Upload Payment Screenshot */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <Camera className="inline w-4 h-4 mr-1" />
+                    Upload Payment Screenshot *
+                  </label>
+                  <div className="border-2 border-dashed border-yellow-300 rounded-lg p-4 text-center hover:border-yellow-400 hover:bg-yellow-50 transition-colors">
+                    <Upload className="mx-auto w-8 h-8 text-gray-400 mb-2" />
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png"
+                      onChange={handlePaymentScreenshotChange}
+                      className="hidden"
+                      id="paymentScreenshot"
+                    />
+                    <label
+                      htmlFor="paymentScreenshot"
+                      className="cursor-pointer text-yellow-600 hover:text-yellow-500 font-medium text-sm"
+                    >
+                      {paymentScreenshot
+                        ? "Change Screenshot"
+                        : "Click to upload screenshot"}
+                    </label>
+                    <p className="text-gray-500 text-xs mt-1">
+                      JPG, PNG up to 5MB
+                    </p>
+
+                    {paymentScreenshot && (
+                      <div className="mt-3 bg-white p-3 rounded border-2 border-green-200 flex items-center justify-between">
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span className="text-xs text-gray-700 truncate">
+                            {paymentScreenshot.name}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentScreenshot(null)}
+                          className="text-red-500 hover:text-red-700 ml-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  onClick={handleCompleteRegistration}
+                  disabled={!paymentScreenshot || isSubmitting}
+                  className={`w-full py-3 sm:py-4 px-4 sm:px-6 rounded-lg font-semibold text-white text-sm sm:text-base transition-all duration-200 ${
+                    !paymentScreenshot || isSubmitting
+                      ? "bg-gray-400 cursor-not-allowed"
+                      : "bg-yellow-500 hover:bg-yellow-600 focus:ring-4 focus:ring-yellow-300 shadow-lg hover:shadow-xl"
+                  }`}
+                >
+                  {isSubmitting ? (
+                    <div className="flex items-center justify-center">
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Processing...
+                    </div>
+                  ) : (
+                    <>
+                      <CheckCircle className="inline w-5 h-5 mr-2" />
+                      Done Payment and Create Account
+                    </>
+                  )}
+                </button>
+
+                <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <p className="text-xs text-yellow-800 text-center">
+                    🔒 Your payment will be verified by admin within 24 hours
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       <div className="min-h-screen bg-yellow-50 py-4 sm:py-8 lg:py-12 px-3 sm:px-4 lg:px-6">
@@ -1016,26 +1301,15 @@ const DocumentPhotoSignupForm: React.FC = () => {
                 </div>
               </div>
 
-              {/* Submit Button */}
+              {/* Checkout Button */}
               <div className="pt-4 sm:pt-6">
                 <button
                   type="button"
-                  onClick={handleSubmit}
-                  disabled={isSubmitting}
-                  className={`w-full py-3 sm:py-4 px-4 sm:px-6 rounded-lg font-semibold text-white text-sm sm:text-base transition-all duration-200 ${
-                    isSubmitting
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-yellow-500 hover:bg-yellow-600 focus:ring-4 focus:ring-yellow-300 shadow-lg hover:shadow-xl"
-                  }`}
+                  onClick={handleCheckout}
+                  className="w-full py-3 sm:py-4 px-4 sm:px-6 rounded-lg font-semibold text-white text-sm sm:text-base transition-all duration-200 bg-yellow-500 hover:bg-yellow-600 focus:ring-4 focus:ring-yellow-300 shadow-lg hover:shadow-xl flex items-center justify-center"
                 >
-                  {isSubmitting ? (
-                    <div className="flex items-center justify-center">
-                      <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                      Creating Account & Uploading Documents...
-                    </div>
-                  ) : (
-                    "Create Account"
-                  )}
+                  <ShoppingCart className="w-5 h-5 mr-2" />
+                  Proceed to Checkout
                 </button>
 
                 <div className="mt-3 sm:mt-4 text-center p-4 bg-gray-50 rounded-lg">

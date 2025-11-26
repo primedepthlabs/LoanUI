@@ -1,9 +1,8 @@
-import Image from "next/image";
-import LanguageSelection from "@/components/langselection/page";
-export default function Home() {
-  return (
-    <div>
-      <LanguageSelection />
-    </div>
-  );
-}
+import React from "react";
+import LoanDashboard from "./firstview/page";
+
+const page = () => {
+  return <LoanDashboard />;
+};
+
+export default page;

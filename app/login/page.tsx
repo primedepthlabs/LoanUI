@@ -42,7 +42,7 @@ const userService = {
     try {
       const { data, error } = await supabase
         .from("users")
-        .select("id, kyc_status, can_login")
+        .select("id, kyc_status, can_login, payment_status")
         .eq("auth_user_id", authUserId)
         .maybeSingle();
 
@@ -171,12 +171,35 @@ const LoginPage: NextPage = () => {
       }
 
       // Check KYC status before allowing login
-      const { kyc_status, can_login } = userResult.user as {
+      // Check KYC status and payment status before allowing login
+      const { kyc_status, can_login, payment_status } = userResult.user as {
         kyc_status: string;
         can_login: boolean;
+        payment_status?: string;
       };
 
-      if (can_login || kyc_status === "approved") {
+      // Check if user can login based on can_login flag
+      if (!can_login) {
+        setLoginStatus("Login access denied. Contact administrator.");
+        await supabase.auth.signOut();
+        return;
+      }
+
+      // Check payment status
+      if (payment_status !== "approved") {
+        if (payment_status === "rejected") {
+          setLoginStatus("Your payment was rejected. Contact support.");
+        } else if (payment_status === "pending") {
+          setLoginStatus("Your payment is pending approval.");
+        } else {
+          setLoginStatus("Payment verification required.");
+        }
+        await supabase.auth.signOut();
+        return;
+      }
+
+      // Check KYC status
+      if (kyc_status === "approved") {
         router.push("/");
         return;
       }

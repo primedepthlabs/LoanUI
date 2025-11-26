@@ -42,7 +42,9 @@ const LoanDashboard: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // 'home' or 'agent-dashboard'
-  const [activeView, setActiveView] = useState<"home" | "agent-dashboard">("home");
+  const [activeView, setActiveView] = useState<"home" | "agent-dashboard">(
+    "home"
+  );
 
   const languageContent: Record<string, LanguageContent> = {
     english: {
@@ -94,9 +96,11 @@ const LoanDashboard: React.FC = () => {
 
       if (error) throw error;
 
-      const serverHas = !!(data?.purchased_courses?.length > 0 || data?.is_agent);
+      const serverHas = !!(
+        data?.purchased_courses?.length > 0 || data?.is_agent
+      );
       // keep local true if previously set (merge)
-      setHasPurchasedCourse(prev => prev || serverHas);
+      setHasPurchasedCourse((prev) => prev || serverHas);
     } catch (error) {
       console.error("Error checking purchased courses:", error);
       // don't overwrite client flag aggressively
@@ -117,7 +121,9 @@ const LoanDashboard: React.FC = () => {
 
     const checkAuthAndFlags = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (!mounted) return;
         setUser(session?.user ?? null);
 
@@ -152,7 +158,9 @@ const LoanDashboard: React.FC = () => {
     checkAuthAndFlags();
     fetchLoanOptions();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       setUser(session?.user || null);
       if (session?.user) {
@@ -179,11 +187,13 @@ const LoanDashboard: React.FC = () => {
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
-      try { localStorage.removeItem("hasPurchasedCourse"); } catch {}
+      try {
+        localStorage.removeItem("hasPurchasedCourse");
+      } catch {}
       setUser(null);
       setHasPurchasedCourse(false);
       setActiveView("home");
-      router.push("/");
+      router.push("/login");
     } catch (error) {
       console.error("Logout error:", error);
     }
@@ -193,21 +203,24 @@ const LoanDashboard: React.FC = () => {
   const handleProfileClick = () => router.push("/profile");
   const handleEarnAsAgent = () => router.push("/agent-courses");
 
- const handleAgentDashboard = () => {
-  if (!hasPurchasedCourse) {
-    router.push("/agent-courses");
-    return;
-  }
-  // Redirect to the actual agent dashboard page
-  router.push("/agent-dashboard");
-};
+  const handleAgentDashboard = () => {
+    if (!hasPurchasedCourse) {
+      router.push("/agent-courses");
+      return;
+    }
+    // Redirect to the actual agent dashboard page
+    router.push("/agent-dashboard");
+  };
 
   const sidebarItems = [
     {
       id: "home",
       label: "Home",
       icon: Home,
-      onClick: () => { setActiveView("home"); setSidebarOpen(false); },
+      onClick: () => {
+        setActiveView("home");
+        setSidebarOpen(false);
+      },
     },
     {
       id: "earn-agent",
@@ -237,19 +250,22 @@ const LoanDashboard: React.FC = () => {
     );
   }
 
- 
-
   return (
     <div className="min-h-screen bg-gray-100 flex">
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
-      <div className={`
+      <div
+        className={`
         fixed lg:static inset-y-0 left-0 z-50
         w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out
         ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-      `}>
+      `}
+      >
         <div className="flex flex-col h-full">
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center gap-3">
@@ -268,7 +284,11 @@ const LoanDashboard: React.FC = () => {
               {sidebarItems.map((item) => {
                 const IconComponent = item.icon;
                 return (
-                  <button key={item.id} onClick={item.onClick} className="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-800">
+                  <button
+                    key={item.id}
+                    onClick={item.onClick}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors text-gray-600 hover:bg-gray-50 hover:text-gray-800"
+                  >
                     <IconComponent className="w-5 h-5" />
                     <span className="font-medium">{item.label}</span>
                   </button>
@@ -280,17 +300,26 @@ const LoanDashboard: React.FC = () => {
           <div className="p-4 border-t border-gray-200">
             {user ? (
               <div className="space-y-3">
-                <button onClick={handleProfileClick} className="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors text-gray-600 hover:bg-gray-50">
+                <button
+                  onClick={handleProfileClick}
+                  className="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors text-gray-600 hover:bg-gray-50"
+                >
                   <User className="w-5 h-5" />
                   <span className="font-medium">Profile</span>
                 </button>
-                <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors text-red-600 hover:bg-red-50">
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors text-red-600 hover:bg-red-50"
+                >
                   <LogOut className="w-5 h-5" />
                   <span className="font-medium">Logout</span>
                 </button>
               </div>
             ) : (
-              <button onClick={handleLoginSignup} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-800 font-medium py-3 rounded-lg transition-colors">
+              <button
+                onClick={handleLoginSignup}
+                className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-800 font-medium py-3 rounded-lg transition-colors"
+              >
                 {content.loginSignup}
               </button>
             )}
@@ -301,7 +330,10 @@ const LoanDashboard: React.FC = () => {
       <div className="flex-1 flex flex-col min-h-screen">
         <div className="lg:hidden bg-white shadow-sm p-4">
           <div className="flex items-center justify-between">
-            <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            >
               <Menu className="w-5 h-5 text-gray-600" />
             </button>
             <div className="flex items-center gap-3">
@@ -316,22 +348,41 @@ const LoanDashboard: React.FC = () => {
 
         <div className="relative bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 p-6">
           <div className="absolute inset-0 opacity-10">
-            <div style={{ backgroundImage: "radial-gradient(circle at 20% 50%, white 1px, transparent 1px)", backgroundSize: "20px 20px" }} className="w-full h-full" />
+            <div
+              style={{
+                backgroundImage:
+                  "radial-gradient(circle at 20% 50%, white 1px, transparent 1px)",
+                backgroundSize: "20px 20px",
+              }}
+              className="w-full h-full"
+            />
           </div>
 
           <div className="flex justify-center mb-4 relative z-10">
             <div className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
-              <img src="logo.jpg" alt="logo" className="w-10 h-10 rounded-full" />
+              <img
+                src="logo.jpg"
+                alt="logo"
+                className="w-10 h-10 rounded-full"
+              />
             </div>
           </div>
 
           <div className="hidden lg:flex absolute top-4 right-4 gap-2 z-20">
             {user && (
               <>
-                <button onClick={handleProfileClick} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all duration-200 border border-white/20 group" aria-label="Profile">
+                <button
+                  onClick={handleProfileClick}
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all duration-200 border border-white/20 group"
+                  aria-label="Profile"
+                >
                   <User className="w-5 h-5 text-white group-hover:text-yellow-400" />
                 </button>
-                <button onClick={handleLogout} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all duration-200 border border-white/20 group" aria-label="Logout">
+                <button
+                  onClick={handleLogout}
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all duration-200 border border-white/20 group"
+                  aria-label="Logout"
+                >
                   <LogOut className="w-5 h-5 text-white group-hover:text-yellow-400" />
                 </button>
               </>
@@ -340,47 +391,76 @@ const LoanDashboard: React.FC = () => {
 
           <div className="text-center text-white relative z-10">
             <h1 className="text-xl font-bold mb-2">{content.welcome}</h1>
-            <p className="text-gray-300 text-sm mb-1">{content.getInstantLoan}</p>
+            <p className="text-gray-300 text-sm mb-1">
+              {content.getInstantLoan}
+            </p>
           </div>
         </div>
 
         <div className="flex-1 p-4 -mt-2 bg-gray-100">
-         
-            <>
-              {loanOptions.length === 0 ? (
-                <div className="bg-white rounded-lg p-8 text-center">
-                  <p className="text-gray-600 text-lg">No loan options available at the moment</p>
-                  <p className="text-gray-500 text-sm mt-2">Please check back later</p>
-                </div>
-              ) : (
-                loanOptions.map((loan) => (
-                  <div key={loan.id} className="bg-white rounded-lg mb-4 p-4 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
-                          <span className="text-lg">{loan.icon}</span>
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-bold text-gray-800 mb-1">{loan.amount}</h3>
-                          <p className="text-sm text-gray-600">{selectedLanguage === "hindi" ? loan.type_hindi : loan.type}</p>
-                        </div>
+          <>
+            {loanOptions.length === 0 ? (
+              <div className="bg-white rounded-lg p-8 text-center">
+                <p className="text-gray-600 text-lg">
+                  No loan options available at the moment
+                </p>
+                <p className="text-gray-500 text-sm mt-2">
+                  Please check back later
+                </p>
+              </div>
+            ) : (
+              loanOptions.map((loan) => (
+                <div
+                  key={loan.id}
+                  className="bg-white rounded-lg mb-4 p-4 shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+                        <span className="text-lg">{loan.icon}</span>
                       </div>
-                      <button onClick={() => handleKnowMore(loan.id)} className="text-yellow-600 text-sm font-medium flex items-center gap-1 hover:text-yellow-700">
-                        {content.knowMore}
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-800 mb-1">
+                          {loan.amount}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          {selectedLanguage === "hindi"
+                            ? loan.type_hindi
+                            : loan.type}
+                        </p>
+                      </div>
                     </div>
+                    <button
+                      onClick={() => handleKnowMore(loan.id)}
+                      className="text-yellow-600 text-sm font-medium flex items-center gap-1 hover:text-yellow-700"
+                    >
+                      {content.knowMore}
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 5l7 7-7 7"
+                        />
+                      </svg>
+                    </button>
                   </div>
-                ))
-              )}
-            </>
-  
+                </div>
+              ))
+            )}
+          </>
 
           {!isCheckingAuth && !user && (
             <div className="lg:hidden fixed bottom-4 left-4 right-4">
-              <button onClick={handleLoginSignup} className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-800 font-bold py-3 rounded-lg text-base shadow-lg">
+              <button
+                onClick={handleLoginSignup}
+                className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-800 font-bold py-3 rounded-lg text-base shadow-lg"
+              >
                 {content.loginSignup}
               </button>
             </div>
