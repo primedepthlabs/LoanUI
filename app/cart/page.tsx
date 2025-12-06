@@ -3,44 +3,55 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { ArrowLeft, CreditCard, Shield, CheckCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  Shield,
+  CheckCircle,
+  X,
+  Upload,
+  Camera,
+  QrCode,
+  IndianRupee,
+  Trash2,
+} from "lucide-react";
 
-type CourseDef = {
+interface Plan {
   id: string;
-  title: string;
-  price: number;
-  cashback: number;
-  duration: string;
-};
-
-const COURSES: Record<string, CourseDef> = {
-  basic_agent: {
-    id: "basic_agent",
-    title: "Basic Agent Program",
-    price: 2500,
-    cashback: 625,
-    duration: "4 weeks",
-  },
-  advanced_agent: {
-    id: "advanced_agent",
-    title: "Advanced Agent Program",
-    price: 5200,
-    cashback: 1300,
-    duration: "6 weeks",
-  },
-};
+  plan_name: string;
+  plan_name_hindi: string | null;
+  amount: number;
+  features: string[];
+  is_active: boolean;
+}
 
 export default function CartPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const courseId = searchParams?.get("course") ?? "";
-  const selectedCourse = courseId ? (COURSES[courseId] ?? null) : null;
+  const planId = searchParams?.get("plan") ?? "";
 
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [planLoading, setPlanLoading] = useState(true);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
+  const [paymentSettings, setPaymentSettings] = useState<{
+    qr_code_url: string;
+    payment_amount: number;
+  } | null>(null);
+  const [loadingPaymentSettings, setLoadingPaymentSettings] = useState(false);
+  const [referralCode, setReferralCode] = useState<string>("");
+
+  // 🔥 NEW: Auto-fill referral code from URL
+  useEffect(() => {
+    const refFromUrl = searchParams?.get("ref") ?? "";
+    if (refFromUrl) {
+      setReferralCode(refFromUrl.toUpperCase());
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     (async () => {
@@ -52,29 +63,302 @@ export default function CartPage() {
         setUser(session?.user ?? null);
 
         if (!session?.user) {
-          // send to login so they come back to cart afterwards
-          router.push(`/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
+          router.push(
+            `/login?returnTo=${encodeURIComponent(
+              location.pathname + location.search
+            )}`
+          );
         }
       } catch (err) {
         console.error("Auth check failed:", err);
-        setErrorMsg("Unable to verify session. Please refresh or log in again.");
+        setErrorMsg(
+          "Unable to verify session. Please refresh or log in again."
+        );
       } finally {
         setAuthLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const paymentService = {
+    getPaymentSettings: async () => {
+      try {
+        const { data, error } = await supabase
+          .from("payment_settings")
+          .select("qr_code_url, payment_amount")
+          .single();
+
+        if (error) throw error;
+        return { success: true, settings: data };
+      } catch (error) {
+        console.error("Payment settings fetch error:", error);
+        return { success: false, error: (error as Error).message };
+      }
+    },
+  };
+
+  useEffect(() => {
+    if (showPaymentModal && !paymentSettings) {
+      fetchPaymentSettings();
+    }
+  }, [showPaymentModal]);
+
+  const handlePaymentScreenshotChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = ["image/jpeg", "image/jpg", "image/png"];
+    const maxSize = 5 * 1024 * 1024; // 5MB
+
+    if (!validTypes.includes(file.type)) {
+      alert("Please upload a valid image file (JPG, JPEG, PNG)");
+      return;
+    }
+
+    if (file.size > maxSize) {
+      alert("File must be less than 5MB");
+      return;
+    }
+
+    setPaymentScreenshot(file);
+  };
+
+  const fetchPaymentSettings = async () => {
+    setLoadingPaymentSettings(true);
+    try {
+      const result = await paymentService.getPaymentSettings();
+      if (result.success && result.settings) {
+        setPaymentSettings(result.settings);
+      } else {
+        alert("Failed to load payment settings. Please try again.");
+        setShowPaymentModal(false);
+      }
+    } catch (error) {
+      console.error("Error fetching payment settings:", error);
+      alert("Failed to load payment settings. Please try again.");
+      setShowPaymentModal(false);
+    } finally {
+      setLoadingPaymentSettings(false);
+    }
+  };
+
+  // Upload payment screenshot to storage
+  const uploadPaymentScreenshot = async (file: File, userId: string) => {
+    try {
+      const fileExtension = file.name.split(".").pop();
+      const fileName = `${userId}/course-payment-${Date.now()}.${fileExtension}`;
+
+      const { data, error } = await supabase.storage
+        .from("user-documents")
+        .upload(fileName, file, {
+          cacheControl: "3600",
+          upsert: true,
+        });
+
+      if (error) throw error;
+
+      const { data: publicUrlData } = supabase.storage
+        .from("user-documents")
+        .getPublicUrl(fileName);
+
+      return {
+        success: true,
+        publicUrl: publicUrlData.publicUrl,
+      };
+    } catch (error) {
+      console.error("Payment screenshot upload error:", error);
+      return { success: false, error: (error as Error).message };
+    }
+  };
+
+  // Submit payment for admin verification
+  const submitPaymentForVerification = async () => {
+    setIsProcessing(true);
+
+    if (!paymentScreenshot || !user || !selectedPlan) {
+      alert("Missing required information");
+      return;
+    }
+
+    // 🔥 NEW: Validate sponsor has this plan if referral code provided
+    if (referralCode.trim()) {
+      setErrorMsg(null);
+
+      try {
+        // Step 1: Find sponsor
+        const { data: sponsorAgent, error: sponsorError } = await supabase
+          .from("agents")
+          .select("id")
+          .eq("referral_code", referralCode.trim())
+          .single();
+
+        if (sponsorError || !sponsorAgent) {
+          setErrorMsg("Invalid referral code. Please check and try again.");
+          setIsProcessing(false);
+          return;
+        }
+
+        // Step 2: Check if sponsor has this plan
+        const { data: sponsorPlan, error: planCheckError } = await supabase
+          .from("agent_plans")
+          .select("id")
+          .eq("agent_id", sponsorAgent.id)
+          .eq("plan_id", selectedPlan.id)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (planCheckError) {
+          console.error("Plan check error:", planCheckError);
+          setErrorMsg("Failed to validate sponsor's plan. Please try again.");
+          setIsProcessing(false);
+          return;
+        }
+
+        if (!sponsorPlan) {
+          setErrorMsg(
+            "Your sponsor doesn't have this plan. Please choose a different plan or contact your sponsor."
+          );
+          setIsProcessing(false);
+          return;
+        }
+
+        // Sponsor has the plan, continue with payment
+      } catch (error) {
+        console.error("Validation error:", error);
+        setErrorMsg("Failed to validate referral. Please try again.");
+        setIsProcessing(false);
+        return;
+      }
+    }
+    setIsProcessing(true);
+    setErrorMsg(null);
+
+    try {
+      // 1. Upload payment screenshot
+      const uploadResult = await uploadPaymentScreenshot(
+        paymentScreenshot,
+        user.id
+      );
+
+      if (!uploadResult.success || !uploadResult.publicUrl) {
+        throw new Error("Failed to upload payment screenshot");
+      }
+
+      // 2. Create payment record in database
+      const { data: paymentData, error: paymentError } = await supabase
+        .from("course_payments")
+        .insert([
+          {
+            user_id: user.id,
+            plan_id: selectedPlan.id,
+            payment_screenshot_url: uploadResult.publicUrl,
+            payment_amount: selectedPlan.amount,
+            payment_status: "pending",
+            referral_code: referralCode.trim() || null,
+            submitted_at: new Date().toISOString(),
+          },
+        ])
+        .select()
+        .single();
+
+      if (paymentError) throw paymentError;
+
+      // 3. Show success and redirect
+      setIsProcessing(false);
+      setPaymentSuccess(true);
+      setShowPaymentModal(false);
+
+      setTimeout(() => {
+        router.push("/");
+      }, 2000);
+    } catch (error) {
+      console.error("Payment submission error:", error);
+      setIsProcessing(false);
+      setErrorMsg(
+        error instanceof Error
+          ? error.message
+          : "Failed to submit payment. Please try again."
+      );
+    }
+  };
+
+  useEffect(() => {
+    const fetchPlan = async () => {
+      if (!planId) {
+        setPlanLoading(false);
+        return;
+      }
+
+      try {
+        setPlanLoading(true);
+        const { data, error } = await supabase
+          .from("plans")
+          .select("*")
+          .eq("id", planId)
+          .eq("is_active", true)
+          .single();
+
+        if (error) throw error;
+
+        if (data) {
+          setSelectedPlan(data);
+        } else {
+          setErrorMsg("Plan not found or no longer available");
+        }
+      } catch (err) {
+        console.error("Error fetching plan:", err);
+        setErrorMsg("Failed to load plan details");
+      } finally {
+        setPlanLoading(false);
+      }
+    };
+
+    fetchPlan();
+  }, [planId]);
 
   const handleBack = () => router.back();
 
-  if (!selectedCourse) {
+  const handlePayment = () => {
+    setErrorMsg(null);
+
+    if (!user) {
+      router.push(
+        `/login?returnTo=${encodeURIComponent(
+          location.pathname + location.search
+        )}`
+      );
+      return;
+    }
+
+    if (!selectedPlan) {
+      setErrorMsg("No plan selected");
+      return;
+    }
+
+    setShowPaymentModal(true);
+  };
+
+  if (authLoading || planLoading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600 mb-4">Course not found</p>
+          <div className="animate-spin rounded-full h-10 w-10 border-2 border-yellow-200 border-t-yellow-500 mx-auto mb-3"></div>
+          <p className="text-sm text-gray-500">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!selectedPlan) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">Plan not found</p>
           <button
             onClick={() => router.push("/agent-courses")}
-            className="bg-yellow-400 text-gray-800 px-6 py-2 rounded-lg font-medium"
+            className="bg-yellow-500 hover:bg-yellow-600 text-gray-900 px-6 py-2 rounded-lg font-medium transition-colors"
           >
             Back to Courses
           </button>
@@ -83,108 +367,79 @@ export default function CartPage() {
     );
   }
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400" />
-      </div>
-    );
-  }
-
-  // ---------- Dummy immediate payment (no DB, no network) ----------
-const handlePayment = () => {
-  setErrorMsg(null);
-
-  // If not logged in, send to login first (preserve returnTo so they come back)
-  if (!user) {
-    router.push(`/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
-    return;
-  }
-
-  setIsProcessing(true);
-
-  // small UX delay to show spinner then show success modal
-  setTimeout(() => {
-    setIsProcessing(false);
-    setPaymentSuccess(true);
-
-    // persist dummy purchase flag once
-    try {
-      localStorage.setItem("hasPurchasedCourse", "true");
-    } catch (e) {
-      console.warn("localStorage not available", e);
-    }
-
-    // After short pause so user sees success modal, navigate and replace history
-    setTimeout(() => {
-     router.replace("/firstview"); // use one consistent route
-    }, 1200);
-  }, 400); // keep small so it's instant-feeling but visible
-};
-
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-white">
       {/* Header */}
-      <div className="bg-white shadow-sm p-4">
-        <div className="flex items-center gap-4">
-          <button onClick={handleBack} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
+      <div className="border-b border-gray-100">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
+          <button
+            onClick={handleBack}
+            className="p-1.5 hover:bg-gray-50 rounded-lg transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5 text-gray-700" />
           </button>
-          <h1 className="text-xl font-bold text-gray-800">Checkout</h1>
+          <h1 className="text-lg font-semibold text-gray-900">Checkout</h1>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto p-4 md:p-6">
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
           {/* Order Summary */}
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-lg font-bold text-gray-800 mb-4">Order Summary</h2>
+          <div className="p-6 border-b border-gray-100">
+            <h2 className="text-base font-semibold text-gray-900 mb-4">
+              Order Summary
+            </h2>
             <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">{selectedCourse.title}</span>
-                <span className="font-semibold">₹{selectedCourse.price.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center text-green-600">
-                <span>Cashback after completion</span>
-                <span className="font-semibold">₹{selectedCourse.cashback.toLocaleString()}</span>
-              </div>
-              <div className="border-t border-gray-200 pt-3">
-                <div className="flex justify-between items-center text-lg font-bold">
-                  <span>Total</span>
-                  <span>₹{selectedCourse.price.toLocaleString()}</span>
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-gray-900 font-medium">
+                    {selectedPlan.plan_name}
+                  </span>
+                  <span className="font-semibold text-gray-900">
+                    ₹{selectedPlan.amount.toLocaleString()}
+                  </span>
                 </div>
-                <p className="text-sm text-gray-500 mt-1">
-                  Effective cost: ₹{(selectedCourse.price - selectedCourse.cashback).toLocaleString()} after cashback
-                </p>
+                {selectedPlan.plan_name_hindi && (
+                  <span className="text-xs text-gray-500">
+                    {selectedPlan.plan_name_hindi}
+                  </span>
+                )}
+              </div>
+
+              <div className="border-t border-gray-100 pt-3">
+                <div className="flex justify-between items-center text-base font-semibold">
+                  <span className="text-gray-900">Total</span>
+                  <span className="text-gray-900">
+                    ₹{selectedPlan.amount.toLocaleString()}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Payment Methods */}
-          <div className="p-6">
-            <h3 className="text-lg font-bold text-gray-800 mb-4">Payment Method</h3>
-            <div className="space-y-3">
-              <label className="flex items-center gap-3 p-4 border border-gray-300 rounded-lg cursor-pointer hover:border-yellow-400">
-                <input type="radio" name="payment" defaultChecked className="text-yellow-400" />
-                <CreditCard className="w-5 h-5 text-gray-400" />
-                <span className="flex-1">Credit/Debit Card</span>
-              </label>
-
-              <label className="flex items-center gap-3 p-4 border border-gray-300 rounded-lg cursor-pointer hover:border-yellow-400">
-                <input type="radio" name="payment" className="text-yellow-400" />
-                <span className="flex-1">UPI Payment</span>
-              </label>
-
-              <label className="flex items-center gap-3 p-4 border border-gray-300 rounded-lg cursor-pointer hover:border-yellow-400">
-                <input type="radio" name="payment" className="text-yellow-400" />
-                <span className="flex-1">Net Banking</span>
-              </label>
+          {/* Plan Features */}
+          {selectedPlan.features && selectedPlan.features.length > 0 && (
+            <div className="p-6 border-b border-gray-100 bg-gray-50">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                What's Included:
+              </h3>
+              <ul className="space-y-2">
+                {selectedPlan.features.map((feature, index) => (
+                  <li
+                    key={index}
+                    className="flex items-start gap-2 text-sm text-gray-600"
+                  >
+                    <CheckCircle className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
+          )}
 
           {/* Security Notice */}
-          <div className="bg-blue-50 p-4 border-t border-blue-200">
-            <div className="flex items-center gap-2 text-blue-700 text-sm">
+          <div className="bg-gray-50 p-4 border-b border-gray-100">
+            <div className="flex items-center gap-2 text-gray-600 text-sm">
               <Shield className="w-4 h-4" />
               <span>Your payment is secure and encrypted</span>
             </div>
@@ -192,7 +447,7 @@ const handlePayment = () => {
 
           {/* Errors */}
           {errorMsg && (
-            <div className="p-4 text-red-700 bg-red-50 border-t border-red-100">
+            <div className="p-4 text-red-700 bg-red-50 border-b border-red-100 text-sm">
               {errorMsg}
             </div>
           )}
@@ -202,32 +457,206 @@ const handlePayment = () => {
             <button
               onClick={handlePayment}
               disabled={isProcessing}
-              className="w-full bg-yellow-400 hover:bg-yellow-500 disabled:bg-gray-300 text-gray-800 font-bold py-4 rounded-lg text-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-300 text-gray-900 font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               {isProcessing ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-800" />
-                  Processing...
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-yellow-200 border-t-gray-900" />
+                  <span className="text-sm">Processing...</span>
                 </>
               ) : (
-                `Pay ₹${selectedCourse.price.toLocaleString()}`
+                <span className="text-sm">
+                  Pay ₹{selectedPlan.amount.toLocaleString()}
+                </span>
               )}
             </button>
           </div>
         </div>
       </div>
 
+      {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 sm:p-8 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+                Complete Payment
+              </h2>
+              <button
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setPaymentScreenshot(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {loadingPaymentSettings ? (
+              <div className="flex justify-center items-center py-12">
+                <div className="w-8 h-8 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            ) : (
+              <>
+                {/* Payment Amount */}
+                <div className="mb-6 text-center bg-yellow-50 p-4 rounded-lg border-2 border-yellow-200">
+                  <p className="text-sm text-gray-600 mb-2">Amount to Pay</p>
+                  <div className="flex items-center justify-center text-4xl font-bold text-yellow-600">
+                    <IndianRupee className="w-8 h-8" />
+                    {selectedPlan.amount}
+                  </div>
+                </div>
+
+                {/* QR Code */}
+                <div className="mb-6">
+                  <p className="text-sm font-medium text-gray-700 mb-3 text-center">
+                    Scan QR Code to Pay
+                  </p>
+                  <div className="border-2 border-yellow-200 rounded-lg p-4 bg-yellow-50 flex justify-center">
+                    {paymentSettings?.qr_code_url ? (
+                      <img
+                        src={paymentSettings.qr_code_url}
+                        alt="Payment QR Code"
+                        className="w-64 h-64 object-contain"
+                      />
+                    ) : (
+                      <div className="w-64 h-64 flex items-center justify-center bg-white rounded">
+                        <QrCode className="w-16 h-16 text-gray-300" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Referral Code Input */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Referral Code (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={referralCode}
+                    onChange={(e) =>
+                      setReferralCode(e.target.value.toUpperCase())
+                    }
+                    placeholder="Enter referral code"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent text-sm"
+                    maxLength={8}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Leave empty if you don't have a referral code
+                  </p>
+                </div>
+                {/* Upload Payment Screenshot */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <Camera className="inline w-4 h-4 mr-1" />
+                    Upload Payment Screenshot *
+                  </label>
+                  <div className="border-2 border-dashed border-yellow-300 rounded-lg p-4 text-center hover:border-yellow-400 hover:bg-yellow-50 transition-colors">
+                    <Upload className="mx-auto w-8 h-8 text-gray-400 mb-2" />
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png"
+                      onChange={handlePaymentScreenshotChange}
+                      className="hidden"
+                      id="paymentScreenshot"
+                    />
+                    <label
+                      htmlFor="paymentScreenshot"
+                      className="cursor-pointer text-yellow-600 hover:text-yellow-500 font-medium text-sm"
+                    >
+                      {paymentScreenshot
+                        ? "Change Screenshot"
+                        : "Click to upload screenshot"}
+                    </label>
+                    <p className="text-gray-500 text-xs mt-1">
+                      JPG, PNG up to 5MB
+                    </p>
+
+                    {paymentScreenshot && (
+                      <div className="mt-3 bg-white p-3 rounded border-2 border-green-200 flex items-center justify-between">
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span className="text-xs text-gray-700 truncate">
+                            {paymentScreenshot.name}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentScreenshot(null)}
+                          className="text-red-500 hover:text-red-700 ml-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Error in Modal */}
+                {errorMsg && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-xs text-red-700">{errorMsg}</p>
+                  </div>
+                )}
+
+                {/* Submit Button */}
+                <button
+                  onClick={submitPaymentForVerification}
+                  disabled={!paymentScreenshot || isProcessing}
+                  className={`w-full py-3 sm:py-4 px-4 sm:px-6 rounded-lg font-semibold text-white text-sm sm:text-base transition-all duration-200 ${
+                    !paymentScreenshot || isProcessing
+                      ? "bg-gray-400 cursor-not-allowed"
+                      : "bg-yellow-500 hover:bg-yellow-600 focus:ring-4 focus:ring-yellow-300 shadow-lg hover:shadow-xl"
+                  }`}
+                >
+                  {isProcessing ? (
+                    <div className="flex items-center justify-center">
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Submitting...
+                    </div>
+                  ) : (
+                    <>
+                      <CheckCircle className="inline w-5 h-5 mr-2" />
+                      Submit for Verification
+                    </>
+                  )}
+                </button>
+
+                <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <p className="text-xs text-yellow-800 text-center">
+                    🔒 Your payment will be verified by admin within 24 hours
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
       {paymentSuccess && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-lg p-8 text-center max-w-md">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="bg-white rounded-lg shadow-lg p-8 text-center max-w-md">
+            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-8 h-8 text-green-500" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Payment Successful!</h2>
-            <p className="text-gray-600 mb-4">You have successfully enrolled in {selectedCourse.title}</p>
-            <p className="text-green-600 font-medium mb-6">
-              You will get ₹{selectedCourse.cashback.toLocaleString()} cashback after course completion
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+              Payment Submitted Successfully!
+            </h2>
+            <p className="text-gray-600 text-sm mb-2">
+              Your payment for {selectedPlan.plan_name} has been submitted for
+              verification.
             </p>
+            <p className="text-gray-500 text-xs mb-4">
+              You will receive a notification once the admin verifies your
+              payment.
+            </p>
+            {selectedPlan.plan_name_hindi && (
+              <p className="text-gray-500 text-xs">
+                {selectedPlan.plan_name_hindi}
+              </p>
+            )}
           </div>
         </div>
       )}

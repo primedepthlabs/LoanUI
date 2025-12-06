@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import Head from "next/head";
-import { NextPage } from "next";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -54,8 +53,7 @@ const userService = {
     }
   },
 };
-
-const LoginPage: NextPage = () => {
+const LoginPage = () => {
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [isChecked, setIsChecked] = useState<boolean>(true);

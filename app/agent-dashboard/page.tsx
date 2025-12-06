@@ -1,165 +1,223 @@
-// app/agent-dashboard/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, TrendingUp, Users, DollarSign, Award, CheckCircle, XCircle } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient"; // remove if you don't want Supabase calls
+import {
+  ArrowLeft,
+  TrendingUp,
+  Users,
+  DollarSign,
+  Clock,
+  CheckCircle,
+  Award,
+  Download,
+} from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
-type Recruit = {
+interface Commission {
   id: string;
-  name: string;
-  recruitsCount: number; // how many people this recruit brought
-  recruits?: Recruit[]; // optional nested list (only one-level used here)
-};
+  commission_amount: number;
+  level: number;
+  status: string;
+  created_at: string;
+  from_agent_id: string;
+  plan_id: string;
+}
+
+interface Stats {
+  totalEarnings: number;
+  pendingEarnings: number;
+  paidEarnings: number;
+  totalNetwork: number;
+  directReferrals: number;
+  activeReferrals: number;
+}
+
+interface EarningsByLevel {
+  level: number;
+  amount: number;
+}
+
+interface EarningsByPlan {
+  plan_name: string;
+  amount: number;
+  [key: string]: any;
+}
 
 export default function AgentDashboard() {
   const router = useRouter();
-
   const [loading, setLoading] = useState(true);
-  const [agentId, setAgentId] = useState<string | null>(null);
-  const [revenues, setRevenues] = useState({
-    thisWeek: 0,
-    thisMonth: 0,
-    basicProgram: 0,
-    advancedProgram: 0,
+  const [stats, setStats] = useState<Stats>({
+    totalEarnings: 0,
+    pendingEarnings: 0,
+    paidEarnings: 0,
+    totalNetwork: 0,
+    directReferrals: 0,
+    activeReferrals: 0,
   });
-  const [directs, setDirects] = useState<Recruit[]>([]); // agent's immediate recruits
-  const [mockMode] = useState(false); // set true to force mock data (if your DB differs)
+  const [commissions, setCommissions] = useState<Commission[]>([]);
+  const [earningsByLevel, setEarningsByLevel] = useState<EarningsByLevel[]>([]);
+  const [earningsByPlan, setEarningsByPlan] = useState<EarningsByPlan[]>([]);
+  const [earningsTimeline, setEarningsTimeline] = useState<any[]>([]);
 
-  // --- Eligibility logic helpers ---
-  const qualifiesFor = (n: number) => {
-    // Agent must have at least n direct recruits AND
-    // each direct must have at least n recruits
-    if (directs.length < n) return false;
-    return directs.slice(0, n).every((d) => (d.recruitsCount ?? 0) >= n);
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+
+      // Get current user
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) {
+        router.push("/login");
+        return;
+      }
+
+      // Get user's internal ID
+      const { data: userData } = await supabase
+        .from("users")
+        .select("id")
+        .eq("auth_user_id", session.user.id)
+        .single();
+
+      if (!userData) return;
+
+      // Get agent data
+      const { data: agentData } = await supabase
+        .from("agents")
+        .select("id, total_referrals, active_referrals")
+        .eq("user_id", userData.id)
+        .single();
+
+      if (!agentData) return;
+
+      // Fetch all commissions for this agent
+      const { data: commissionsData } = await supabase
+        .from("commissions")
+        .select("*")
+        .eq("agent_id", agentData.id)
+        .order("created_at", { ascending: false });
+
+      setCommissions(commissionsData || []);
+
+      // Calculate stats
+      const totalEarnings =
+        commissionsData?.reduce(
+          (sum, c) => sum + Number(c.commission_amount),
+          0
+        ) || 0;
+      const pendingEarnings =
+        commissionsData
+          ?.filter((c) => c.status === "pending")
+          .reduce((sum, c) => sum + Number(c.commission_amount), 0) || 0;
+      const paidEarnings =
+        commissionsData
+          ?.filter((c) => c.status === "paid")
+          .reduce((sum, c) => sum + Number(c.commission_amount), 0) || 0;
+
+      // Get direct referrals count
+      const { count: directCount } = await supabase
+        .from("agents")
+        .select("id", { count: "exact", head: true })
+        .eq("sponsor_id", agentData.id);
+
+      setStats({
+        totalEarnings,
+        pendingEarnings,
+        paidEarnings,
+        totalNetwork: agentData.total_referrals || 0,
+        directReferrals: directCount || 0,
+        activeReferrals: agentData.active_referrals || 0,
+      });
+
+      // Earnings by level
+      const levelMap = new Map<number, number>();
+      commissionsData?.forEach((c) => {
+        const current = levelMap.get(c.level) || 0;
+        levelMap.set(c.level, current + Number(c.commission_amount));
+      });
+      const levelData = Array.from(levelMap.entries())
+        .map(([level, amount]) => ({ level, amount }))
+        .sort((a, b) => a.level - b.level);
+      setEarningsByLevel(levelData);
+
+      // Earnings by plan
+      const planIds = [
+        ...new Set(commissionsData?.map((c) => c.plan_id) || []),
+      ];
+      const { data: plansData } = await supabase
+        .from("plans")
+        .select("id, plan_name")
+        .in("id", planIds);
+
+      const planMap = new Map<string, number>();
+      commissionsData?.forEach((c) => {
+        const current = planMap.get(c.plan_id) || 0;
+        planMap.set(c.plan_id, current + Number(c.commission_amount));
+      });
+
+      const planData = Array.from(planMap.entries()).map(
+        ([plan_id, amount]) => ({
+          plan_name:
+            plansData?.find((p) => p.id === plan_id)?.plan_name || "Unknown",
+          amount,
+        })
+      );
+      setEarningsByPlan(planData);
+
+      // Timeline data (last 7 days)
+      const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        return date.toISOString().split("T")[0];
+      });
+
+      const timelineData = last7Days.map((date) => {
+        const dayEarnings =
+          commissionsData
+            ?.filter((c) => c.created_at.startsWith(date))
+            .reduce((sum, c) => sum + Number(c.commission_amount), 0) || 0;
+        return {
+          date: new Date(date).toLocaleDateString("en-IN", {
+            month: "short",
+            day: "numeric",
+          }),
+          earnings: dayEarnings,
+        };
+      });
+      setEarningsTimeline(timelineData);
+    } catch (error) {
+      console.error("Dashboard load error:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // summary numbers for display
-  const directCount = directs.length;
-  const recruitsTotals = useMemo(() => {
-    const counts = directs.map((d) => d.recruitsCount ?? 0);
-    const average = counts.length ? Math.round(counts.reduce((s, x) => s + x, 0) / counts.length) : 0;
-    return { counts, average, max: Math.max(0, ...(counts.length ? counts : [0])) };
-  }, [directs]);
-
-  // --- fetch from supabase (best-effort) else use demo data ---
-  useEffect(() => {
-    let mounted = true;
-    const load = async () => {
-      setLoading(true);
-      try {
-        // get session/user
-        const { data: sessData, error: sessError } = await supabase.auth.getSession();
-        if (sessError) throw sessError;
-        const session = sessData?.session;
-        const uid = session?.user?.id ?? null;
-        if (!mounted) return;
-        setAgentId(uid);
-
-        if (!uid || mockMode) {
-          // fallback mock data (if user not logged or you want demo)
-          setRevenues({
-            thisWeek: 2450,
-            thisMonth: 15320,
-            basicProgram: 8200,
-            advancedProgram: 7100,
-          });
-          setDirects([
-            { id: "u1", name: "Ramesh", recruitsCount: 2, recruits: [{ id: "u1a", name: "A", recruitsCount: 0 }, { id: "u1b", name: "B", recruitsCount: 0 }] },
-            { id: "u2", name: "Sita", recruitsCount: 2, recruits: [{ id: "u2a", name: "C", recruitsCount: 0 }, { id: "u2b", name: "D", recruitsCount: 0 }] },
-            { id: "u3", name: "Kiran", recruitsCount: 1, recruits: [{ id: "u3a", name: "E", recruitsCount: 0 }] },
-          ]);
-          return;
-        }
-
-        // Try to fetch agent revenue (adapt table/column names to your DB)
-        // Example: table 'agent_revenues' with columns: auth_user_id, period, amount, program
-        try {
-          // Example total fetch - adapt to your schema
-          const { data: revRows } = await supabase
-            .from("agent_revenues")
-            .select("*")
-            .eq("auth_user_id", uid);
-
-          if (revRows && revRows.length) {
-            const thisWeek = revRows.filter((r: any) => r.period === "week").reduce((s: number, r: any) => s + (r.amount || 0), 0);
-            const thisMonth = revRows.filter((r: any) => r.period === "month").reduce((s: number, r: any) => s + (r.amount || 0), 0);
-            const basicProgram = revRows.filter((r: any) => r.program === "basic").reduce((s: number, r: any) => s + (r.amount || 0), 0);
-            const advancedProgram = revRows.filter((r: any) => r.program === "advanced").reduce((s: number, r: any) => s + (r.amount || 0), 0);
-            setRevenues({ thisWeek, thisMonth, basicProgram, advancedProgram });
-          } else {
-            // fallback demo if no rows
-            setRevenues({ thisWeek: 2450, thisMonth: 15320, basicProgram: 8200, advancedProgram: 7100 });
-          }
-        } catch (revErr) {
-          console.warn("Revenue fetch error", revErr);
-          setRevenues({ thisWeek: 2450, thisMonth: 15320, basicProgram: 8200, advancedProgram: 7100 });
-        }
-
-        // Try to fetch referrals: example table 'users' with 'referred_by' column
-        try {
-          // immediate directs
-          const { data: directsRows } = await supabase
-            .from("users")
-            .select("id, full_name, referred_by")
-            .eq("referred_by", uid);
-
-          if (directsRows) {
-            // For each direct, fetch their recruits count (one level)
-            const directIds = directsRows.map((d: any) => d.id);
-            const { data: secondLevel } = await supabase
-              .from("users")
-              .select("id, full_name, referred_by")
-              .in("referred_by", directIds || []);
-
-            // build structured recruits
-            const directMap = (directsRows || []).map((d: any) => {
-              const childCount = (secondLevel || []).filter((s: any) => s.referred_by === d.id).length;
-              const recruits = (secondLevel || []).filter((s: any) => s.referred_by === d.id).map((s: any) => ({ id: s.id, name: s.full_name || "User", recruitsCount: 0 }));
-              return { id: d.id, name: d.full_name || "User", recruitsCount: childCount, recruits };
-            });
-
-            if (mounted) setDirects(directMap);
-          } else {
-            // fallback mock
-            setDirects([
-              { id: "u1", name: "Ramesh", recruitsCount: 2, recruits: [{ id: "u1a", name: "A", recruitsCount: 0 }, { id: "u1b", name: "B", recruitsCount: 0 }] },
-              { id: "u2", name: "Sita", recruitsCount: 2, recruits: [{ id: "u2a", name: "C", recruitsCount: 0 }, { id: "u2b", name: "D", recruitsCount: 0 }] },
-            ]);
-          }
-        } catch (refErr) {
-          console.warn("Referral fetch error", refErr);
-          setDirects([
-            { id: "u1", name: "Ramesh", recruitsCount: 2, recruits: [{ id: "u1a", name: "A", recruitsCount: 0 }, { id: "u1b", name: "B", recruitsCount: 0 }] },
-            { id: "u2", name: "Sita", recruitsCount: 2, recruits: [{ id: "u2a", name: "C", recruitsCount: 0 }, { id: "u2b", name: "D", recruitsCount: 0 }] },
-            { id: "u3", name: "Kiran", recruitsCount: 1, recruits: [{ id: "u3a", name: "E", recruitsCount: 0 }] },
-          ]);
-        }
-      } catch (err) {
-        console.error("Agent dashboard load error:", err);
-        // fallback demo
-        setRevenues({ thisWeek: 2450, thisMonth: 15320, basicProgram: 8200, advancedProgram: 7100 });
-        setDirects([
-          { id: "u1", name: "Ramesh", recruitsCount: 2, recruits: [{ id: "u1a", name: "A", recruitsCount: 0 }, { id: "u1b", name: "B", recruitsCount: 0 }] },
-          { id: "u2", name: "Sita", recruitsCount: 2, recruits: [{ id: "u2a", name: "C", recruitsCount: 0 }, { id: "u2b", name: "D", recruitsCount: 0 }] },
-        ]);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    load();
-
-    return () => {
-      mounted = false;
-    };
-  }, [mockMode]);
+  const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"];
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400" />
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
       </div>
     );
   }
@@ -167,222 +225,275 @@ export default function AgentDashboard() {
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
-      <div className="bg-white shadow-sm p-4">
-        <div className="flex items-center gap-4">
-          <button onClick={() => router.back()} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <h1 className="text-xl font-bold text-gray-800">Agent Dashboard</h1>
+      <div className="bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="flex items-center gap-4 mb-6">
+            <button
+              onClick={() => router.back()}
+              className="p-2 hover:bg-white/10 rounded-full transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5 text-white" />
+            </button>
+            <div>
+              <h1 className="text-2xl font-bold text-white">
+                Earnings Dashboard
+              </h1>
+              <p className="text-sm text-white/80 mt-1">
+                Track your commissions and network growth
+              </p>
+            </div>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <DollarSign className="w-5 h-5 text-white/80" />
+                <p className="text-sm text-white/80">Total Earnings</p>
+              </div>
+              <p className="text-2xl font-bold text-white">
+                ₹{stats.totalEarnings.toLocaleString("en-IN")}
+              </p>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-5 h-5 text-white/80" />
+                <p className="text-sm text-white/80">Pending</p>
+              </div>
+              <p className="text-2xl font-bold text-yellow-400">
+                ₹{stats.pendingEarnings.toLocaleString("en-IN")}
+              </p>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle className="w-5 h-5 text-white/80" />
+                <p className="text-sm text-white/80">Paid</p>
+              </div>
+              <p className="text-2xl font-bold text-green-400">
+                ₹{stats.paidEarnings.toLocaleString("en-IN")}
+              </p>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Users className="w-5 h-5 text-white/80" />
+                <p className="text-sm text-white/80">Total Network</p>
+              </div>
+              <p className="text-2xl font-bold text-white">
+                {stats.totalNetwork}
+              </p>
+              <p className="text-xs text-white/60 mt-1">
+                {stats.directReferrals} direct
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="p-6">
-        {/* Welcome + quick revenue cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-sm text-gray-600">This Week</p>
-            <p className="text-2xl font-bold text-green-600">₹{revenues.thisWeek.toLocaleString()}</p>
+      <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Earnings Timeline Chart */}
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Earnings Timeline (Last 7 Days)
+            </h2>
+            <button className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
+              <Download className="w-4 h-4" />
+              Export
+            </button>
           </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-sm text-gray-600">This Month</p>
-            <p className="text-2xl font-bold text-green-600">₹{revenues.thisMonth.toLocaleString()}</p>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={earningsTimeline}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="earnings"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                name="Earnings (₹)"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Charts Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Earnings by Level */}
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Earnings by Level
+            </h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={earningsByLevel}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="level"
+                  label={{
+                    value: "Level",
+                    position: "insideBottom",
+                    offset: -5,
+                  }}
+                />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="amount" fill="#3b82f6" name="Earnings (₹)" />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-sm text-gray-600">Basic Program</p>
-            <p className="text-2xl font-bold text-blue-600">₹{revenues.basicProgram.toLocaleString()}</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-sm text-gray-600">Advanced Program</p>
-            <p className="text-2xl font-bold text-yellow-600">₹{revenues.advancedProgram.toLocaleString()}</p>
+
+          {/* Earnings by Plan */}
+          {/* Earnings by Plan */}
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Earnings by Plan
+            </h2>
+            {earningsByPlan.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={earningsByPlan}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={(entry: any) =>
+                      `${entry.plan_name} (${(
+                        (entry.percent || 0) * 100
+                      ).toFixed(0)}%)`
+                    }
+                    outerRadius={100}
+                    fill="#8884d8"
+                    dataKey="amount"
+                    nameKey="plan_name"
+                  >
+                    {earningsByPlan.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[index % COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: any) =>
+                      `₹${value.toLocaleString("en-IN")}`
+                    }
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-gray-400">
+                <div className="text-center">
+                  <Award className="w-12 h-12 mx-auto mb-2" />
+                  <p className="text-sm">No plan earnings yet</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Referral summary */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <div className="bg-white rounded-lg p-6 shadow-sm">
-            <h3 className="text-lg font-semibold mb-3">Referral Summary</h3>
-            <p className="text-sm text-gray-600 mb-2">Direct recruits: <span className="font-bold">{directCount}</span></p>
-            <p className="text-sm text-gray-600 mb-2">Avg recruits per direct: <span className="font-bold">{recruitsTotals.average}</span></p>
-            <p className="text-sm text-gray-600">Max recruits under a single direct: <span className="font-bold">{recruitsTotals.max}</span></p>
+        {/* Recent Commissions Table */}
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            Recent Commissions
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b">
+                <tr className="text-left text-gray-600">
+                  <th className="pb-3 font-medium">Date</th>
+                  <th className="pb-3 font-medium">Level</th>
+                  <th className="pb-3 font-medium text-right">Amount</th>
+                  <th className="pb-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {commissions.slice(0, 10).map((commission) => (
+                  <tr key={commission.id} className="hover:bg-gray-50">
+                    <td className="py-3 text-gray-700">
+                      {new Date(commission.created_at).toLocaleDateString(
+                        "en-IN",
+                        {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        }
+                      )}
+                    </td>
+                    <td className="py-3">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+                        Level {commission.level}
+                      </span>
+                    </td>
+                    <td className="py-3 text-right font-semibold text-gray-900">
+                      ₹
+                      {Number(commission.commission_amount).toLocaleString(
+                        "en-IN"
+                      )}
+                    </td>
+                    <td className="py-3">
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          commission.status === "paid"
+                            ? "bg-green-100 text-green-700"
+                            : commission.status === "pending"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {commission.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
-            <div className="mt-4 space-y-2">
-              {directs.map((d) => (
-                <div key={d.id} className="flex items-center justify-between border rounded p-2">
-                  <div>
-                    <p className="font-medium">{d.name}</p>
-                    <p className="text-xs text-gray-500">Has {d.recruitsCount} recruits</p>
-                  </div>
-                  <div className="text-sm text-gray-700">{d.recruitsCount}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* 2x2 system */}
-          <div className="bg-white rounded-lg p-6 shadow-sm">
-            <h3 className="text-lg font-semibold mb-3">2 × 2 Referral Program</h3>
-            <p className="text-sm text-gray-600 mb-2">Need: At least 2 direct recruits, and each must have ≥ 2 recruits</p>
-
-            <div className="mt-3 flex items-center gap-3">
-              {qualifiesFor(2) ? (
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle className="w-5 h-5" />
-                  <span className="font-semibold">Eligible</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-red-600">
-                  <XCircle className="w-5 h-5" />
-                  <span className="font-semibold">Not eligible</span>
-                </div>
-              )}
-            </div>
-
-            {/* simple visual tree: show top N directs and their recruits */}
-            <div className="mt-4">
-              <div className="flex items-start gap-4">
-                {/* agent box */}
-                <div className="text-center">
-                  <div className="bg-gray-50 p-3 rounded-lg border">You</div>
-                </div>
-
-                {/* connectors and direct boxes */}
-                <div className="flex-1 grid grid-cols-2 gap-2">
-                  {directs.slice(0, 2).map((d) => (
-                    <div key={d.id} className="border rounded p-2 bg-white">
-                      <div className="font-medium">{d.name}</div>
-                      <div className="text-xs text-gray-500">Recruits: {d.recruitsCount}</div>
-                      <div className="mt-2 grid grid-cols-2 gap-1">
-                        {(d.recruits || Array.from({ length: Math.max(0, d.recruitsCount) })).slice(0, 2).map((r, idx) => (
-                          <div key={idx} className="text-xs p-1 border rounded text-center bg-gray-50">
-                            {r?.name ?? `P${idx + 1}`}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* fill empty slots if not enough directs */}
-                  {directs.length < 2 &&
-                    Array.from({ length: 2 - directs.length }).map((_, i) => (
-                      <div key={`empty-${i}`} className="border rounded p-2 bg-gray-50 text-center text-sm text-gray-400">
-                        Empty slot
-                      </div>
-                    ))}
-                </div>
+            {commissions.length === 0 && (
+              <div className="text-center py-12 text-gray-500">
+                <Award className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                <p>No commissions yet</p>
+                <p className="text-sm mt-1">
+                  Start building your network to earn commissions
+                </p>
               </div>
-            </div>
-
-            <div className="mt-4 flex gap-2">
-              <button className="px-3 py-2 bg-yellow-400 rounded text-sm font-medium" onClick={() => router.push("/agent-referrals")}>
-                View Details
-              </button>
-              <button className="px-3 py-2 border rounded text-sm" onClick={() => alert("Share referral link copied!")}>
-                Share Link
-              </button>
-            </div>
-          </div>
-
-          {/* 3x3 system */}
-          <div className="bg-white rounded-lg p-6 shadow-sm">
-            <h3 className="text-lg font-semibold mb-3">3 × 3 Referral Program</h3>
-            <p className="text-sm text-gray-600 mb-2">Need: At least 3 direct recruits, and each must have ≥ 3 recruits</p>
-
-            <div className="mt-3 flex items-center gap-3">
-              {qualifiesFor(3) ? (
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle className="w-5 h-5" />
-                  <span className="font-semibold">Eligible</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-red-600">
-                  <XCircle className="w-5 h-5" />
-                  <span className="font-semibold">Not eligible</span>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4">
-              <div className="flex items-start gap-4">
-                <div className="text-center">
-                  <div className="bg-gray-50 p-3 rounded-lg border">You</div>
-                </div>
-
-                <div className="flex-1 grid grid-cols-3 gap-2">
-                  {directs.slice(0, 3).map((d) => (
-                    <div key={d.id} className="border rounded p-2 bg-white">
-                      <div className="font-medium">{d.name}</div>
-                      <div className="text-xs text-gray-500">Recruits: {d.recruitsCount}</div>
-                      <div className="mt-2 grid grid-cols-3 gap-1">
-                        {(d.recruits || Array.from({ length: Math.max(0, d.recruitsCount) })).slice(0, 3).map((r, idx) => (
-                          <div key={idx} className="text-xs p-1 border rounded text-center bg-gray-50">
-                            {r?.name ?? `P${idx + 1}`}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-
-                  {directs.length < 3 &&
-                    Array.from({ length: 3 - directs.length }).map((_, i) => (
-                      <div key={`empty3-${i}`} className="border rounded p-2 bg-gray-50 text-center text-sm text-gray-400">
-                        Empty slot
-                      </div>
-                    ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 flex gap-2">
-              <button className="px-3 py-2 bg-yellow-400 rounded text-sm font-medium" onClick={() => router.push("/agent-referrals")}>
-                View Details
-              </button>
-              <button className="px-3 py-2 border rounded text-sm" onClick={() => alert("Referral tree exported (demo)")}>
-                Export Tree
-              </button>
-            </div>
+            )}
           </div>
         </div>
 
-        {/* Extra quick actions and training (kept from previous UI) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg p-6 shadow-sm">
-            <h3 className="text-lg font-bold mb-4">Training Progress</h3>
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span>Basic Agent Program</span>
-                  <span>100%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-green-500 h-2 rounded-full w-full"></div>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span>Advanced Agent Program</span>
-                  <span>65%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-yellow-500 h-2 rounded-full w-[65%]"></div>
-                </div>
-              </div>
-            </div>
-          </div>
+        {/* Quick Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <button
+            onClick={() => router.push("/agent-network")}
+            className="bg-white rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow text-left"
+          >
+            <Users className="w-8 h-8 text-blue-600 mb-3" />
+            <h3 className="font-semibold text-gray-900 mb-1">My Network</h3>
+            <p className="text-sm text-gray-600">View your referral tree</p>
+          </button>
 
-          <div className="bg-white rounded-lg p-6 shadow-sm">
-            <h3 className="text-lg font-bold mb-4">Quick Actions</h3>
-            <div className="space-y-3">
-              <button onClick={() => router.push("/agent-dashboard/leads")} className="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-yellow-400 hover:bg-yellow-50 transition-colors">
-                📋 View Leads
-              </button>
-              <button onClick={() => router.push("/agent-dashboard/new")} className="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-yellow-400 hover:bg-yellow-50 transition-colors">
-                👥 Add New Lead
-              </button>
-              <button onClick={() => router.push("/agent-courses")} className="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-yellow-400 hover:bg-yellow-50 transition-colors">
-                🎓 Continue Training
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={() => router.push("/agent-courses")}
+            className="bg-white rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow text-left"
+          >
+            <Award className="w-8 h-8 text-yellow-600 mb-3" />
+            <h3 className="font-semibold text-gray-900 mb-1">Training</h3>
+            <p className="text-sm text-gray-600">Continue your courses</p>
+          </button>
+
+          <button
+            onClick={() => router.push("/withdraw")}
+            className="bg-white rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow text-left"
+          >
+            <DollarSign className="w-8 h-8 text-green-600 mb-3" />
+            <h3 className="font-semibold text-gray-900 mb-1">Withdraw</h3>
+            <p className="text-sm text-gray-600">Request payout</p>
+          </button>
         </div>
       </div>
     </div>

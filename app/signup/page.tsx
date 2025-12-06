@@ -20,7 +20,7 @@ import {
   IndianRupee,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-
+import { useRouter } from "next/navigation";
 interface FormData {
   name: string;
   age: string;
@@ -288,27 +288,29 @@ const registrationService = {
         formData.email,
         formData.password
       );
-      if (!authResult.success) {
-        return { success: false, error: authResult.error };
+      if (!authResult.success || !authResult.user?.id) {
+        return {
+          success: false,
+          error: authResult.error || "Failed to create user account",
+        };
       }
+      const userId = authResult.user.id;
 
-      const userId = authResult.user?.id;
-      if (!userId) {
-        return { success: false, error: "Failed to create user account" };
-      }
-
+      // Simple wait for database sync
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       // Upload payment screenshot first
       const paymentUploadResult = await storageService.uploadPaymentScreenshot(
         paymentScreenshot,
         userId
       );
 
-      if (!paymentUploadResult.success) {
+      if (!paymentUploadResult.success || !paymentUploadResult.publicUrl) {
         await authService.signOut();
         return {
           success: false,
           error:
-            "Failed to upload payment screenshot: " + paymentUploadResult.error,
+            "Failed to upload payment screenshot: " +
+            (paymentUploadResult.error || "Unknown error"),
         };
       }
 
@@ -404,7 +406,7 @@ const DocumentPhotoSignupForm: React.FC = () => {
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
-
+  const router = useRouter();
   // Payment modal states
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
@@ -778,6 +780,8 @@ const DocumentPhotoSignupForm: React.FC = () => {
       alert(errorMessage || "Registration failed. Please try again.");
     } finally {
       setIsSubmitting(false);
+
+      router.push("/");
     }
   };
 
