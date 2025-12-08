@@ -1,4 +1,3 @@
-// app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -598,7 +597,6 @@ const LoanDashboard: React.FC = () => {
       year: "numeric",
     });
   };
-
   const sidebarItems: SidebarItem[] = [
     {
       id: "home",
@@ -617,16 +615,15 @@ const LoanDashboard: React.FC = () => {
     },
   ];
 
-  // Only show "Earn as Agent" if user hasn't purchased a course
-  if (!hasPurchasedCourse) {
-    sidebarItems.splice(1, 0, {
-      id: "earn-agent",
-      label: isAgent ? agentPlan : "Earn as Agent",
-      icon: Briefcase,
-      onClick: handleEarnAsAgent,
-    });
-  }
+  // 🔥 Show "Earn as Agent" for everyone
+  sidebarItems.splice(1, 0, {
+    id: "earn-agent",
+    label: isAgent ? agentPlan || "Agent Portal" : "Become an Agent",
+    icon: Briefcase,
+    onClick: handleEarnAsAgent,
+  });
 
+  // Only show dropdown for existing agents
   if (isAgent) {
     sidebarItems.push({
       id: "agent-dashboard-parent",

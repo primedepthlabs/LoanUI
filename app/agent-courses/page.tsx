@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { ArrowLeft, BookOpen, CheckCircle, Clock } from "lucide-react";
+import { ArrowLeft, BookOpen, CheckCircle } from "lucide-react";
 
 interface Course {
   id: string;
@@ -24,7 +24,14 @@ const AgentCoursesPage: React.FC = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [error, setError] = useState<string>("");
   const [realtimeNotification, setRealtimeNotification] = useState<string>("");
-  // 🔥 NEW: Referral code states
+  const [isExistingAgent, setIsExistingAgent] = useState(false);
+  const [sponsorPlans, setSponsorPlans] = useState<string[]>([]);
+
+  // Track current user's agent info and purchased plans
+  const [currentAgentId, setCurrentAgentId] = useState<string | null>(null);
+  const [purchasedPlanIds, setPurchasedPlanIds] = useState<string[]>([]);
+
+  // Referral code states
   const [referralCode, setReferralCode] = useState<string>("");
   const [sponsorInfo, setSponsorInfo] = useState<{
     id: string;
@@ -32,7 +39,7 @@ const AgentCoursesPage: React.FC = () => {
   } | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [filteredCourses, setFilteredCourses] = useState<Course[]>([]);
-  const [showAllPlans, setShowAllPlans] = useState(true); // Show all plans by default
+  const [showAllPlans, setShowAllPlans] = useState(true);
 
   useEffect(() => {
     const initializePage = async () => {
@@ -168,6 +175,7 @@ const AgentCoursesPage: React.FC = () => {
     }
   };
 
+  // 🔥 UPDATED: Check auth and fetch agent's purchased plans + sponsor's plans
   const checkAuth = async () => {
     try {
       const {
@@ -176,19 +184,72 @@ const AgentCoursesPage: React.FC = () => {
       setUser(session?.user || null);
 
       if (session?.user) {
-        const { data } = await supabase
+        // Get user's ID from users table
+        const { data: userData } = await supabase
           .from("users")
-          .select("purchased_courses")
+          .select("id")
           .eq("auth_user_id", session.user.id)
           .single();
 
-        if (data?.purchased_courses) {
-          setCourses((prevCourses) =>
-            prevCourses.map((course) => ({
-              ...course,
-              isPurchased: data.purchased_courses.includes(course.id),
-            }))
-          );
+        if (userData) {
+          // Check if user is an agent
+          const { data: agentData } = await supabase
+            .from("agents")
+            .select("id, sponsor_id")
+            .eq("user_id", userData.id)
+            .single();
+
+          if (agentData) {
+            setIsExistingAgent(true);
+            setCurrentAgentId(agentData.id);
+
+            // Fetch agent's purchased plans
+            const { data: purchasedPlans } = await supabase
+              .from("agent_plans")
+              .select("plan_id")
+              .eq("agent_id", agentData.id)
+              .eq("is_active", true);
+
+            const planIds = purchasedPlans?.map((p) => p.plan_id) || [];
+            setPurchasedPlanIds(planIds);
+
+            // 🔥 Fetch sponsor's plans if agent has a sponsor
+            if (agentData.sponsor_id) {
+              const { data: sponsorPlansData } = await supabase
+                .from("agent_plans")
+                .select("plan_id")
+                .eq("agent_id", agentData.sponsor_id)
+                .eq("is_active", true);
+
+              const sponsorPlanIds =
+                sponsorPlansData?.map((p) => p.plan_id) || [];
+              setSponsorPlans(sponsorPlanIds);
+
+              // Get sponsor name
+              const { data: sponsorAgent } = await supabase
+                .from("agents")
+                .select("user_id")
+                .eq("id", agentData.sponsor_id)
+                .single();
+
+              if (sponsorAgent) {
+                const { data: sponsorUser } = await supabase
+                  .from("users")
+                  .select("name")
+                  .eq("id", sponsorAgent.user_id)
+                  .single();
+
+                setSponsorInfo({
+                  id: agentData.sponsor_id,
+                  name: sponsorUser?.name || "Your Sponsor",
+                });
+              }
+
+              setShowAllPlans(false); // Don't show all plans for existing agents
+            }
+          } else {
+            setIsExistingAgent(false);
+          }
         }
       }
     } catch (error) {
@@ -196,7 +257,7 @@ const AgentCoursesPage: React.FC = () => {
     }
   };
 
-  // 🔥 NEW: Validate referral code and fetch sponsor's plans
+  // 🔥 UPDATED: Validate referral code (only for new users)
   const validateReferralCode = async () => {
     if (!referralCode.trim()) {
       setError("Please enter a referral code");
@@ -256,10 +317,22 @@ const AgentCoursesPage: React.FC = () => {
         return;
       }
 
-      // Step 4: Filter courses to show only sponsor's plans
-      const filtered = courses.filter((course) =>
-        sponsorPlanIds.includes(course.id)
+      // Filter to show only sponsor's plans that user hasn't purchased
+      const filtered = courses.filter(
+        (course) =>
+          sponsorPlanIds.includes(course.id) &&
+          !purchasedPlanIds.includes(course.id)
       );
+
+      if (filtered.length === 0) {
+        setError(
+          "You have already purchased all available plans from this sponsor."
+        );
+        setFilteredCourses([]);
+        setShowAllPlans(true);
+        setIsVerifying(false);
+        return;
+      }
 
       setFilteredCourses(filtered);
       setShowAllPlans(false);
@@ -275,7 +348,6 @@ const AgentCoursesPage: React.FC = () => {
     }
   };
 
-  // 🔥 NEW: Clear referral filter
   const clearReferralFilter = () => {
     setReferralCode("");
     setSponsorInfo(null);
@@ -283,25 +355,42 @@ const AgentCoursesPage: React.FC = () => {
     setShowAllPlans(true);
     setError("");
   };
+
   const handleCourseSelect = (course: Course) => {
     if (!user) {
       router.push("/login");
       return;
     }
 
-    if (course.isPurchased) {
-      router.push("/agent-dashboard");
-    } else {
-      // 🔥 NEW: Pass referral code to cart if sponsor is verified
-      const cartUrl = sponsorInfo
-        ? `/cart?plan=${course.id}&ref=${referralCode}`
-        : `/cart?plan=${course.id}`;
-      router.push(cartUrl);
-    }
+    // Pass referral code to cart if sponsor is verified
+    const cartUrl = sponsorInfo
+      ? `/cart?plan=${course.id}&ref=${referralCode}`
+      : `/cart?plan=${course.id}`;
+    router.push(cartUrl);
   };
 
   const handleBack = () => {
     router.back();
+  };
+
+  // 🔥 UPDATED: Get display courses - filter based on agent status
+  const getDisplayCourses = () => {
+    let baseCourses = courses;
+
+    // If existing agent, show only sponsor's plans
+    if (isExistingAgent && sponsorPlans.length > 0) {
+      baseCourses = courses.filter((course) =>
+        sponsorPlans.includes(course.id)
+      );
+    } else if (!showAllPlans) {
+      // For new users with referral code
+      baseCourses = filteredCourses;
+    }
+
+    // Filter out already purchased plans
+    return baseCourses.filter(
+      (course) => !purchasedPlanIds.includes(course.id)
+    );
   };
 
   if (isLoading) {
@@ -314,6 +403,8 @@ const AgentCoursesPage: React.FC = () => {
       </div>
     );
   }
+
+  const displayCourses = getDisplayCourses();
 
   return (
     <div className="min-h-screen bg-white">
@@ -356,62 +447,83 @@ const AgentCoursesPage: React.FC = () => {
         </div>
       )}
 
-      {/* 🔥 NEW: Referral Code Input Section */}
-      <div className="border-b border-gray-100 bg-white">
-        <div className="max-w-5xl mx-auto px-4 py-6">
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">
-              Enter Referral Code
-            </h3>
+      {/* 🔥 UPDATED: Referral Code Input - Only show for NON-agents */}
+      {!isExistingAgent && (
+        <div className="border-b border-gray-100 bg-white">
+          <div className="max-w-5xl mx-auto px-4 py-6">
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                Enter Referral Code
+              </h3>
 
-            {!sponsorInfo ? (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={referralCode}
-                  onChange={(e) =>
-                    setReferralCode(e.target.value.toUpperCase())
-                  }
-                  placeholder="Enter 8-digit referral code"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent text-sm"
-                  maxLength={8}
-                  disabled={isVerifying}
-                />
-                <button
-                  onClick={validateReferralCode}
-                  disabled={isVerifying || !referralCode.trim()}
-                  className="px-6 py-2 bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-300 text-gray-900 text-sm font-medium rounded-lg transition-colors"
-                >
-                  {isVerifying ? "Verifying..." : "Verify"}
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
-                <div>
-                  <p className="text-sm font-medium text-green-900">
-                    ✓ Showing plans from:{" "}
-                    <span className="font-bold">{sponsorInfo.name}</span>
-                  </p>
-                  <p className="text-xs text-green-700 mt-1">
-                    Displaying {filteredCourses.length} available plan
-                    {filteredCourses.length !== 1 ? "s" : ""}
-                  </p>
+              {!sponsorInfo ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={referralCode}
+                    onChange={(e) =>
+                      setReferralCode(e.target.value.toUpperCase())
+                    }
+                    placeholder="Enter 8-digit referral code"
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent text-sm"
+                    maxLength={8}
+                    disabled={isVerifying}
+                  />
+                  <button
+                    onClick={validateReferralCode}
+                    disabled={isVerifying || !referralCode.trim()}
+                    className="px-6 py-2 bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-300 text-gray-900 text-sm font-medium rounded-lg transition-colors"
+                  >
+                    {isVerifying ? "Verifying..." : "Verify"}
+                  </button>
                 </div>
-                <button
-                  onClick={clearReferralFilter}
-                  className="px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-white rounded transition-colors"
-                >
-                  Clear
-                </button>
-              </div>
-            )}
+              ) : (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div>
+                    <p className="text-sm font-medium text-green-900">
+                      ✓ Showing plans from:{" "}
+                      <span className="font-bold">{sponsorInfo.name}</span>
+                    </p>
+                    <p className="text-xs text-green-700 mt-1">
+                      Displaying {displayCourses.length} available plan
+                      {displayCourses.length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={clearReferralFilter}
+                    className="px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-white rounded transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
 
-            <p className="text-xs text-gray-500 mt-2">
-              💡 Enter your sponsor's referral code to see available plans
-            </p>
+              <p className="text-xs text-gray-500 mt-2">
+                💡 Enter your sponsor's referral code to see available plans
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* 🔥 NEW: Show sponsor info for existing agents */}
+      {isExistingAgent && sponsorInfo && (
+        <div className="border-b border-gray-100 bg-white">
+          <div className="max-w-5xl mx-auto px-4 py-6">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-green-900">
+                ✓ Showing plans from your sponsor:{" "}
+                <span className="font-bold">{sponsorInfo.name}</span>
+              </p>
+              <p className="text-xs text-green-700 mt-1">
+                Displaying {displayCourses.length} available plan
+                {displayCourses.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Compact Hero */}
       <div className="border-b border-gray-100 bg-gray-50">
         <div className="max-w-5xl mx-auto px-4 py-8 text-center">
@@ -423,14 +535,22 @@ const AgentCoursesPage: React.FC = () => {
 
       {/* Compact Courses Grid */}
       <div className="max-w-5xl mx-auto px-4 py-8">
-        {(showAllPlans ? courses : filteredCourses).length === 0 ? (
+        {displayCourses.length === 0 ? (
           <div className="border border-gray-200 rounded-lg p-12 text-center">
             <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
               <BookOpen className="w-6 h-6 text-gray-400" />
             </div>
-            <p className="text-gray-900 font-medium mb-1">No plans available</p>
+            <p className="text-gray-900 font-medium mb-1">
+              {purchasedPlanIds.length > 0
+                ? "No new plans available"
+                : "No plans available"}
+            </p>
             <p className="text-gray-500 text-sm mb-4">
-              Check back soon for new courses
+              {purchasedPlanIds.length > 0
+                ? "You have already purchased all available plans"
+                : isExistingAgent
+                ? "Your sponsor hasn't purchased any plans yet"
+                : "Check back soon for new courses"}
             </p>
             <button
               onClick={() => {
@@ -444,7 +564,7 @@ const AgentCoursesPage: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {(showAllPlans ? courses : filteredCourses).map((course) => (
+            {displayCourses.map((course) => (
               <div
                 key={course.id}
                 className="border border-gray-200 rounded-lg hover:border-gray-300 hover:shadow-sm transition-all duration-200 overflow-hidden bg-white"
@@ -494,7 +614,7 @@ const AgentCoursesPage: React.FC = () => {
                     onClick={() => handleCourseSelect(course)}
                     className="w-full py-2.5 px-4 bg-yellow-500 hover:bg-yellow-600 cursor-pointer text-gray-900 text-sm font-medium rounded-lg transition-colors"
                   >
-                    {course.isPurchased ? "Access Course" : "Enroll Now"}
+                    Enroll Now
                   </button>
                 </div>
               </div>

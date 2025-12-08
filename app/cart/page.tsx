@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { calculateCommissions } from "@/lib/commissionCalculation";
+
 import {
   ArrowLeft,
   Shield,
@@ -45,7 +47,15 @@ export default function CartPage() {
   const [loadingPaymentSettings, setLoadingPaymentSettings] = useState(false);
   const [referralCode, setReferralCode] = useState<string>("");
 
-  // 🔥 NEW: Auto-fill referral code from URL
+  // 🔥 NEW: Agent check states
+  const [isExistingAgent, setIsExistingAgent] = useState(false);
+  const [currentAgentId, setCurrentAgentId] = useState<string | null>(null);
+  const [sponsorInfo, setSponsorInfo] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+
+  // 🔥 Auto-fill referral code from URL
   useEffect(() => {
     const refFromUrl = searchParams?.get("ref") ?? "";
     if (refFromUrl) {
@@ -68,6 +78,9 @@ export default function CartPage() {
               location.pathname + location.search
             )}`
           );
+        } else {
+          // 🔥 Check if user is an existing agent
+          await checkIfUserIsAgent(session.user.id);
         }
       } catch (err) {
         console.error("Auth check failed:", err);
@@ -79,6 +92,58 @@ export default function CartPage() {
       }
     })();
   }, []);
+
+  // 🔥 NEW: Check if user is already an agent
+  const checkIfUserIsAgent = async (authUserId: string) => {
+    try {
+      // Get user's ID from users table
+      const { data: userData } = await supabase
+        .from("users")
+        .select("id")
+        .eq("auth_user_id", authUserId)
+        .single();
+
+      if (userData) {
+        // Check if user is an agent
+        const { data: agentData } = await supabase
+          .from("agents")
+          .select("id, sponsor_id")
+          .eq("user_id", userData.id)
+          .single();
+
+        if (agentData) {
+          setIsExistingAgent(true);
+          setCurrentAgentId(agentData.id);
+
+          // Get sponsor info if exists
+          if (agentData.sponsor_id) {
+            const { data: sponsorAgent } = await supabase
+              .from("agents")
+              .select("user_id")
+              .eq("id", agentData.sponsor_id)
+              .single();
+
+            if (sponsorAgent) {
+              const { data: sponsorUser } = await supabase
+                .from("users")
+                .select("name")
+                .eq("id", sponsorAgent.user_id)
+                .single();
+
+              setSponsorInfo({
+                id: agentData.sponsor_id,
+                name: sponsorUser?.name || "Your Sponsor",
+              });
+            }
+          }
+        } else {
+          setIsExistingAgent(false);
+        }
+      }
+    } catch (error) {
+      console.error("Agent check error:", error);
+    }
+  };
 
   const paymentService = {
     getPaymentSettings: async () => {
@@ -173,21 +238,30 @@ export default function CartPage() {
     }
   };
 
-  // Submit payment for admin verification
+  // 🔥 UPDATED: Submit payment for admin verification
   const submitPaymentForVerification = async () => {
     setIsProcessing(true);
+    setErrorMsg(null);
 
     if (!paymentScreenshot || !user || !selectedPlan) {
       alert("Missing required information");
+      setIsProcessing(false);
       return;
     }
 
-    // 🔥 NEW: Validate sponsor has this plan if referral code provided
-    if (referralCode.trim()) {
-      setErrorMsg(null);
+    // 🔥 NEW: For non-agents, referral code is required
+    if (!isExistingAgent && !referralCode.trim()) {
+      setErrorMsg("Referral code is required for new agents");
+      setIsProcessing(false);
+      return;
+    }
 
+    // 🔥 Validate sponsor has this plan (for both existing agents and new users)
+    let sponsorIdToUse = sponsorInfo?.id || null;
+
+    if (!isExistingAgent && referralCode.trim()) {
       try {
-        // Step 1: Find sponsor
+        // Step 1: Find sponsor by referral code
         const { data: sponsorAgent, error: sponsorError } = await supabase
           .from("agents")
           .select("id")
@@ -199,6 +273,8 @@ export default function CartPage() {
           setIsProcessing(false);
           return;
         }
+
+        sponsorIdToUse = sponsorAgent.id;
 
         // Step 2: Check if sponsor has this plan
         const { data: sponsorPlan, error: planCheckError } = await supabase
@@ -223,8 +299,6 @@ export default function CartPage() {
           setIsProcessing(false);
           return;
         }
-
-        // Sponsor has the plan, continue with payment
       } catch (error) {
         console.error("Validation error:", error);
         setErrorMsg("Failed to validate referral. Please try again.");
@@ -232,8 +306,39 @@ export default function CartPage() {
         return;
       }
     }
-    setIsProcessing(true);
-    setErrorMsg(null);
+
+    // 🔥 For existing agents, validate their sponsor has this plan
+    if (isExistingAgent && sponsorInfo?.id) {
+      try {
+        const { data: sponsorPlan, error: planCheckError } = await supabase
+          .from("agent_plans")
+          .select("id")
+          .eq("agent_id", sponsorInfo.id)
+          .eq("plan_id", selectedPlan.id)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (planCheckError) {
+          console.error("Plan check error:", planCheckError);
+          setErrorMsg("Failed to validate sponsor's plan. Please try again.");
+          setIsProcessing(false);
+          return;
+        }
+
+        if (!sponsorPlan) {
+          setErrorMsg(
+            "Your sponsor doesn't have this plan. This plan is not available for purchase."
+          );
+          setIsProcessing(false);
+          return;
+        }
+      } catch (error) {
+        console.error("Validation error:", error);
+        setErrorMsg("Failed to validate sponsor's plan. Please try again.");
+        setIsProcessing(false);
+        return;
+      }
+    }
 
     try {
       // 1. Upload payment screenshot
@@ -256,7 +361,7 @@ export default function CartPage() {
             payment_screenshot_url: uploadResult.publicUrl,
             payment_amount: selectedPlan.amount,
             payment_status: "pending",
-            referral_code: referralCode.trim() || null,
+            referral_code: isExistingAgent ? null : referralCode.trim() || null,
             submitted_at: new Date().toISOString(),
           },
         ])
@@ -264,6 +369,30 @@ export default function CartPage() {
         .single();
 
       if (paymentError) throw paymentError;
+
+      // 🔥 3. NEW: Calculate commissions immediately if user is existing agent
+      if (isExistingAgent && currentAgentId) {
+        console.log("Creating immediate commissions for existing agent...");
+
+        const commissionResult = await calculateCommissions(
+          paymentData.id,
+          currentAgentId,
+          selectedPlan.id,
+          selectedPlan.amount
+        );
+
+        if (commissionResult.success) {
+          console.log(`✅ ${commissionResult.message}`);
+        } else {
+          console.error(
+            "⚠️ Commission calculation failed:",
+            commissionResult.message
+          );
+          // Don't block payment - admin can recalculate later
+        }
+      }
+
+      // 4. Show success and redirect
 
       // 3. Show success and redirect
       setIsProcessing(false);
@@ -383,6 +512,19 @@ export default function CartPage() {
       </div>
 
       <div className="max-w-2xl mx-auto p-4 md:p-6">
+        {/* 🔥 NEW: Show agent status banner */}
+        {isExistingAgent && sponsorInfo && (
+          <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-4">
+            <p className="text-sm font-medium text-green-900">
+              ✓ You're an existing agent under:{" "}
+              <span className="font-bold">{sponsorInfo.name}</span>
+            </p>
+            <p className="text-xs text-green-700 mt-1">
+              No referral code needed for this purchase
+            </p>
+          </div>
+        )}
+
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           {/* Order Summary */}
           <div className="p-6 border-b border-gray-100">
@@ -527,25 +669,39 @@ export default function CartPage() {
                     )}
                   </div>
                 </div>
-                {/* Referral Code Input */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Referral Code (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={referralCode}
-                    onChange={(e) =>
-                      setReferralCode(e.target.value.toUpperCase())
-                    }
-                    placeholder="Enter referral code"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent text-sm"
-                    maxLength={8}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Leave empty if you don't have a referral code
-                  </p>
-                </div>
+
+                {/* 🔥 UPDATED: Referral Code Input - Only for non-agents */}
+                {!isExistingAgent && (
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Referral Code <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={referralCode}
+                      onChange={(e) =>
+                        setReferralCode(e.target.value.toUpperCase())
+                      }
+                      placeholder="Enter referral code"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent text-sm"
+                      maxLength={8}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Referral code is required for new agents
+                    </p>
+                  </div>
+                )}
+
+                {/* 🔥 NEW: Show sponsor info for existing agents */}
+                {isExistingAgent && sponsorInfo && (
+                  <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-sm font-medium text-green-900">
+                      ✓ Purchasing under:{" "}
+                      <span className="font-bold">{sponsorInfo.name}</span>
+                    </p>
+                  </div>
+                )}
+
                 {/* Upload Payment Screenshot */}
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -603,9 +759,15 @@ export default function CartPage() {
                 {/* Submit Button */}
                 <button
                   onClick={submitPaymentForVerification}
-                  disabled={!paymentScreenshot || isProcessing}
+                  disabled={
+                    !paymentScreenshot ||
+                    isProcessing ||
+                    (!isExistingAgent && !referralCode.trim())
+                  }
                   className={`w-full py-3 sm:py-4 px-4 sm:px-6 rounded-lg font-semibold text-white text-sm sm:text-base transition-all duration-200 ${
-                    !paymentScreenshot || isProcessing
+                    !paymentScreenshot ||
+                    isProcessing ||
+                    (!isExistingAgent && !referralCode.trim())
                       ? "bg-gray-400 cursor-not-allowed"
                       : "bg-yellow-500 hover:bg-yellow-600 focus:ring-4 focus:ring-yellow-300 shadow-lg hover:shadow-xl"
                   }`}
