@@ -19,6 +19,12 @@ interface Course {
 
 const AgentCoursesPage: React.FC = () => {
   const router = useRouter();
+  const colors = [
+    { bg: "bg-purple-500", icon: "text-purple-500" },
+    { bg: "bg-green-500", icon: "text-green-500" },
+    { bg: "bg-yellow-500", icon: "text-yellow-500" },
+    { bg: "bg-pink-500", icon: "text-pink-500" },
+  ];
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -478,13 +484,13 @@ const AgentCoursesPage: React.FC = () => {
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+                <div className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                   <div>
-                    <p className="text-sm font-medium text-green-900">
+                    <p className="text-sm font-medium text-yellow-900">
                       ✓ Showing plans from:{" "}
                       <span className="font-bold">{sponsorInfo.name}</span>
                     </p>
-                    <p className="text-xs text-green-700 mt-1">
+                    <p className="text-xs text-yellow-700 mt-1">
                       Displaying {displayCourses.length} available plan
                       {displayCourses.length !== 1 ? "s" : ""}
                     </p>
@@ -510,12 +516,12 @@ const AgentCoursesPage: React.FC = () => {
       {isExistingAgent && sponsorInfo && (
         <div className="border-b border-gray-100 bg-white">
           <div className="max-w-5xl mx-auto px-4 py-6">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-green-900">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-yellow-900">
                 ✓ Showing plans from your sponsor:{" "}
                 <span className="font-bold">{sponsorInfo.name}</span>
               </p>
-              <p className="text-xs text-green-700 mt-1">
+              <p className="text-xs text-yellow-700 mt-1">
                 Displaying {displayCourses.length} available plan
                 {displayCourses.length !== 1 ? "s" : ""}
               </p>
@@ -564,61 +570,84 @@ const AgentCoursesPage: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {displayCourses.map((course) => (
-              <div
-                key={course.id}
-                className="border border-gray-200 rounded-lg hover:border-gray-300 hover:shadow-sm transition-all duration-200 overflow-hidden bg-white"
-              >
-                {/* Compact Header */}
-                <div className="p-5 border-b border-gray-100">
-                  <div className="mb-3">
-                    <h3 className="font-semibold text-gray-900 text-base mb-1">
-                      {course.plan_name}
-                    </h3>
-                    {course.plan_name_hindi && (
-                      <p className="text-xs text-gray-500">
-                        {course.plan_name_hindi}
-                      </p>
-                    )}
-                  </div>
-                </div>
+            {displayCourses.map((course, index) => {
+              const colorIndex = index % colors.length;
+              return (
+                <div
+                  key={course.id}
+                  className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-200 overflow-hidden border-l-4 border-yellow-500"
+                >
+                  <div className="p-5 border-b border-gray-100">
+                    <div className="flex items-center gap-3 mb-3">
+                      {/* Colored Icon Circle */}
+                      <div
+                        className={`w-10 h-10 ${colors[colorIndex].bg} rounded-full flex items-center justify-center flex-shrink-0`}
+                      >
+                        <BookOpen className="w-5 h-5 text-white" />
+                      </div>
 
-                {/* Body */}
-                <div className="p-5">
-                  {/* Compact Pricing */}
-                  <div className="mb-5">
-                    <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-2xl font-semibold text-gray-900">
-                        ₹{course.amount.toLocaleString()}
-                      </span>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900 text-base">
+                          {course.plan_name}
+                        </h3>
+                        {course.plan_name_hindi && (
+                          <p className="text-xs text-gray-500">
+                            {course.plan_name_hindi}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Minimal Features */}
-                  <div className="mb-5">
-                    <ul className="space-y-2">
-                      {course.features.map((feature, index) => (
-                        <li
-                          key={index}
-                          className="flex items-start gap-2 text-sm text-gray-600"
-                        >
-                          <CheckCircle className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
-                          <span>{feature}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  {/* Body */}
+                  <div className="p-5">
+                    {/* Compact Pricing */}
+                    <div className="mb-5">
+                      <div className="flex items-baseline gap-2 mb-1">
+                        <span className="text-2xl font-semibold text-gray-900">
+                          ₹{course.amount.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
 
-                  {/* Minimal CTA */}
-                  <button
-                    onClick={() => handleCourseSelect(course)}
-                    className="w-full py-2.5 px-4 bg-yellow-500 hover:bg-yellow-600 cursor-pointer text-gray-900 text-sm font-medium rounded-lg transition-colors"
-                  >
-                    Enroll Now
-                  </button>
+                    {/* Green Bubble Features */}
+                    <div className="mb-5 space-y-3">
+                      {course.features.map((feature, featureIndex) => (
+                        <div
+                          key={featureIndex}
+                          className="flex items-center gap-3 bg-green-500 rounded-full px-4 py-3 shadow-sm"
+                        >
+                          <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center flex-shrink-0">
+                            <svg
+                              className="w-5 h-5 text-green-500"
+                              fill="currentColor"
+                              viewBox="0 0 20 20"
+                            >
+                              <path
+                                fillRule="evenodd"
+                                d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                          </div>
+                          <span className="text-white font-medium text-sm flex-1">
+                            {feature}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Minimal CTA */}
+                    <button
+                      onClick={() => handleCourseSelect(course)}
+                      className="w-full py-2.5 px-4 bg-yellow-500 hover:bg-yellow-600 cursor-pointer text-gray-900 text-sm font-medium rounded-lg transition-colors"
+                    >
+                      Enroll Now
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

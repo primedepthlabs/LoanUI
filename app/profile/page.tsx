@@ -4,12 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import {
-  User,
-  ArrowLeft,
-  Save,
-  Mail,
-} from "lucide-react";
+import { User, ArrowLeft, Save, Mail } from "lucide-react";
 
 interface UserData {
   id: string;
@@ -52,9 +47,11 @@ const ProfileSection: React.FC = () => {
   useEffect(() => {
     const getCurrentUser = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         setUser(session?.user || null);
-        
+
         if (session?.user) {
           await fetchUserProfile(session.user.id);
         } else {
@@ -70,16 +67,16 @@ const ProfileSection: React.FC = () => {
 
     getCurrentUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        setUser(session?.user || null);
-        if (session?.user) {
-          await fetchUserProfile(session.user.id);
-        } else {
-          setIsLoading(false);
-        }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      setUser(session?.user || null);
+      if (session?.user) {
+        await fetchUserProfile(session.user.id);
+      } else {
+        setIsLoading(false);
       }
-    );
+    });
 
     return () => subscription.unsubscribe();
   }, [router]);
@@ -88,7 +85,7 @@ const ProfileSection: React.FC = () => {
   const fetchUserProfile = async (userId: string) => {
     try {
       setIsLoading(true);
-      
+
       const { data, error } = await supabase
         .from("users")
         .select("*")
@@ -97,13 +94,13 @@ const ProfileSection: React.FC = () => {
 
       if (error) {
         console.error("Error fetching user profile:", error);
-        
+
         // If user doesn't exist in users table, create a new profile
-        if (error.code === 'PGRST116') {
+        if (error.code === "PGRST116") {
           await createUserProfile(userId);
           return;
         }
-        
+
         throw error;
       }
 
@@ -127,7 +124,7 @@ const ProfileSection: React.FC = () => {
   const createUserProfile = async (userId: string) => {
     try {
       const { data: authData } = await supabase.auth.getUser();
-      
+
       const newUserProfile = {
         auth_user_id: userId,
         name: authData.user?.user_metadata?.full_name || "User",
@@ -169,7 +166,10 @@ const ProfileSection: React.FC = () => {
 
   const handleUpdateProfile = async () => {
     if (!user || !userData) {
-      setMessage({ type: "error", text: "User not found. Please log in again." });
+      setMessage({
+        type: "error",
+        text: "User not found. Please log in again.",
+      });
       return;
     }
 
@@ -209,13 +209,17 @@ const ProfileSection: React.FC = () => {
       if (error) throw error;
 
       // Update local state
-      setUserData(prev => prev ? {
-        ...prev,
-        name: formData.name.trim(),
-        age: formData.age,
-        mobile_number: formData.mobile_number,
-        updated_at: new Date().toISOString(),
-      } : null);
+      setUserData((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: formData.name.trim(),
+              age: formData.age,
+              mobile_number: formData.mobile_number,
+              updated_at: new Date().toISOString(),
+            }
+          : null
+      );
 
       setMessage({ type: "success", text: "Profile updated successfully!" });
     } catch (error) {
@@ -249,7 +253,9 @@ const ProfileSection: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="bg-white rounded-lg p-8 text-center">
-          <p className="text-gray-600 mb-4">Please log in to view your profile</p>
+          <p className="text-gray-600 mb-4">
+            Please log in to view your profile
+          </p>
           <button
             onClick={() => router.push("/login")}
             className="bg-yellow-400 text-gray-800 px-6 py-2 rounded-lg font-medium"
@@ -266,18 +272,12 @@ const ProfileSection: React.FC = () => {
       {/* Header */}
       <div className="bg-white shadow-sm p-4">
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.back()}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
           <h1 className="text-xl font-bold text-gray-800">Profile</h1>
         </div>
       </div>
 
       <div className="flex justify-center p-4 md:p-6">
-        <div className="bg-white rounded-lg shadow-sm p-6 w-full max-w-2xl">
+        <div className="bg-white rounded-lg shadow-sm p-6 w-full max-w-7xl">
           <h2 className="text-lg font-bold text-gray-800 mb-6">
             Account Details
           </h2>

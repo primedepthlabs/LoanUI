@@ -432,28 +432,10 @@ export default function AgentNetworkPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="max-w-9xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="mb-6 flex items-center gap-3">
-          <button
-            onClick={() => router.back()}
-            className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-            aria-label="Go back"
-          >
-            <svg
-              className="w-6 h-6 text-gray-700"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 19l-7-7 7-7"
-              />
-            </svg>
-          </button>
+         
           <div>
             <h1 className="text-2xl font-bold text-gray-800 mb-1">
               My Network

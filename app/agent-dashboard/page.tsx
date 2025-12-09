@@ -107,7 +107,6 @@ export default function AgentDashboard() {
     totalWithdrawn: 0,
     pendingWithdrawal: 0,
   });
-
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [earningsByLevel, setEarningsByLevel] = useState<EarningsByLevel[]>([]);
   const [earningsByPlan, setEarningsByPlan] = useState<EarningsByPlan[]>([]);
@@ -193,20 +192,14 @@ export default function AgentDashboard() {
       setPlanMap(map);
 
       //
-      const { data: lockedRewards } = await supabase
+      const { data: planRewards } = await supabase
         .from("agent_plan_rewards")
         .select(
-          `
-    locked_amount,
-    pairing_completed,
-    pairing_limit,
-    plan_id
-  `
+          "locked_amount, pairing_completed, pairing_limit, plan_id, is_released"
         )
-        .eq("agent_id", agentData.id)
-        .eq("is_released", false);
+        .eq("agent_id", agentData.id);
 
-      setLockedPlans(lockedRewards || []);
+      setLockedPlans(planRewards || []);
 
       // Fetch all commissions with related data - FIXED foreign key constraint
       const { data: commissionsData } = await supabase
@@ -392,6 +385,8 @@ export default function AgentDashboard() {
     );
   }
   console.log("LOCKED PLANS =>", lockedPlans);
+  const locked = lockedPlans.filter((p) => !p.is_released);
+  const unlocked = lockedPlans.filter((p) => p.is_released);
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -399,17 +394,12 @@ export default function AgentDashboard() {
       <div className="bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 shadow-sm">
         <div className="max-w-9xl mx-auto px-4 py-6">
           <div className="flex items-center gap-4 mb-6">
-            <button
-              onClick={() => router.back()}
-              className="p-2 hover:bg-white/10 rounded-full transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-white" />
-            </button>
+         
             <div>
               <h1 className="text-2xl font-bold text-white">
                 Earnings Dashboard
               </h1>
-              <p className="text-sm text-white/80 mt-1">
+              <p className="text-sm text-white mt-1">
                 Track your commissions and network growth
               </p>
             </div>
@@ -417,65 +407,65 @@ export default function AgentDashboard() {
 
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             {/* Net Earnings */}
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
               <div className="flex items-center gap-2 mb-2">
-                <DollarSign className="w-5 h-5 text-white/80" />
-                <p className="text-sm text-white/80">Net Earnings</p>
+                <DollarSign className="w-5 h-5 text-gray-700" />
+                <p className="text-sm text-gray-700">Net Earnings</p>
               </div>
-              <p className="text-2xl font-bold text-white">
+              <p className="text-2xl font-bold text-gray-800">
                 ₹{stats.totalEarnings.toLocaleString("en-IN")}
               </p>
-              <p className="text-xs text-white/60 mt-1">
+              <p className="text-xs text-gray-600 mt-1">
                 {stats.activePlans} active plans
               </p>
             </div>
 
             {/* Pending */}
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
               <div className="flex items-center gap-2 mb-2">
-                <Clock className="w-5 h-5 text-white/80" />
-                <p className="text-sm text-white/80">Pending</p>
+                <Clock className="w-5 h-5 text-gray-700" />
+                <p className="text-sm text-gray-700">Pending</p>
               </div>
               <p className="text-2xl font-bold text-yellow-400">
                 ₹{stats.pendingEarnings.toLocaleString("en-IN")}
               </p>
-              <p className="text-xs text-white/60 mt-1">Awaiting payment</p>
+              <p className="text-xs text-gray-600 mt-1">Awaiting payment</p>
             </div>
 
             {/* Available Balance */}
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
               <div className="flex items-center gap-2 mb-2">
-                <CheckCircle className="w-5 h-5 text-white/80" />
-                <p className="text-sm text-white/80">Available</p>
+                <CheckCircle className="w-5 h-5 text-gray-700" />
+                <p className="text-sm text-gray-700">Available</p>
               </div>
               <p className="text-2xl font-bold text-green-400">
                 ₹{stats.availableBalance.toLocaleString("en-IN")}
               </p>
-              <p className="text-xs text-white/60 mt-1">Ready to withdraw</p>
+              <p className="text-xs text-gray-600 mt-1">Ready to withdraw</p>
             </div>
 
             {/* ✅ Instant Cashback */}
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
               <div className="flex items-center gap-2 mb-2">
-                <Award className="w-5 h-5 text-white/80" />
-                <p className="text-sm text-white/80">Instant Cashback</p>
+                <Award className="w-5 h-5 text-gray-700" />
+                <p className="text-sm text-gray-700">Instant Cashback</p>
               </div>
               <p className="text-2xl font-bold text-green-300">
                 ₹{stats.instantCashback.toLocaleString("en-IN")}
               </p>
-              <p className="text-xs text-white/60 mt-1">Credited instantly</p>
+              <p className="text-xs text-gray-600 mt-1">Credited instantly</p>
             </div>
 
             {/* Network */}
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
               <div className="flex items-center gap-2 mb-2">
-                <Users className="w-5 h-5 text-white/80" />
-                <p className="text-sm text-white/80">Network</p>
+                <Users className="w-5 h-5 text-gray-700" />
+                <p className="text-sm text-gray-700">Network</p>
               </div>
-              <p className="text-2xl font-bold text-white">
+              <p className="text-2xl font-bold text-gray-800">
                 {stats.totalNetwork}
               </p>
-              <p className="text-xs text-white/60 mt-1">
+              <p className="text-xs text-gray-600 mt-1">
                 {stats.directReferrals} direct • {stats.activeReferrals} active
               </p>
             </div>
@@ -493,7 +483,7 @@ export default function AgentDashboard() {
               </h2>
               <p className="text-sm text-gray-500">Last 7 days performance</p>
             </div>
-            <button className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
+            <button className="text-sm text-yellow-600 hover:text-yellow-700 flex items-center gap-1">
               <Download className="w-4 h-4" />
               Export
             </button>
@@ -508,7 +498,7 @@ export default function AgentDashboard() {
               <Line
                 type="monotone"
                 dataKey="earnings"
-                stroke="#3b82f6"
+                stroke="#eab308"
                 strokeWidth={2}
                 name="Earnings (₹)"
               />
@@ -552,7 +542,7 @@ export default function AgentDashboard() {
                     }}
                   />
                   <Legend />
-                  <Bar dataKey="amount" fill="#3b82f6" name="Earnings (₹)" />
+                  <Bar dataKey="amount" fill="#eab308" name="Earnings (₹)" />
                   <Bar dataKey="count" fill="#10b981" name="Commissions" />
                 </BarChart>
               </ResponsiveContainer>
@@ -619,36 +609,68 @@ export default function AgentDashboard() {
             )}
           </div>
         </div>
-
-        {/* Earnings by Plan */}
-        {/* 🔒 Locked Plan Earnings */}
-        {lockedPlans.length > 0 && (
+        {locked.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Locked Plan Earnings
-            </h2>
+            <h2 className="text-lg font-semibold mb-4">🔒 Locked Plans</h2>
 
-            <div className="space-y-3">
-              {lockedPlans.map((p, i) => (
-                <div
-                  key={i}
-                  className="border rounded-lg p-4 flex justify-between items-center"
-                >
-                  <div>
+            {locked.map((p, i) => {
+              const progress = Math.min(p.pairing_completed, p.pairing_limit);
+              const percent = Math.min((progress / p.pairing_limit) * 100, 100);
+
+              return (
+                <div key={i} className="border rounded-lg p-4 mb-4">
+                  <div className="flex justify-between mb-1">
                     <div className="font-medium text-gray-900">
-                      {planMap[p.plan_id] ?? "Unknown Plan"}
+                      {planMap[p.plan_id] ?? "Plan"}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {progress} / {p.pairing_limit}
                     </div>
                   </div>
 
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-orange-600">
+                  {/* Progress Bar */}
+                  <div className="w-full bg-gray-200 rounded h-2 mb-2">
+                    <div
+                      className="bg-orange-500 h-2 rounded"
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-gray-500">
+                      {p.pairing_limit - progress} more pair(s) needed
+                    </span>
+
+                    <span className="font-semibold text-orange-600">
                       ₹{Number(p.locked_amount).toLocaleString("en-IN")}
-                    </div>
-                    <div className="text-xs text-gray-500">Locked</div>
+                    </span>
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
+          </div>
+        )}
+        {unlocked.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm p-6 mt-6">
+            <h2 className="text-lg font-semibold mb-4">✅ Unlocked Plans</h2>
+
+            {unlocked.map((p, i) => (
+              <div key={i} className="border rounded-lg p-4 mb-3 bg-green-50">
+                <div className="flex justify-between">
+                  <div className="font-medium text-gray-900">
+                    {planMap[p.plan_id] ?? "Plan"}
+                  </div>
+                  <div className="text-green-600 text-sm flex items-center gap-1">
+                    <CheckCircle className="w-4 h-4" />
+                    Unlocked
+                  </div>
+                </div>
+
+                <div className="text-green-700 font-semibold mt-1">
+                  ₹{Number(p.locked_amount).toLocaleString("en-IN")}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -734,7 +756,7 @@ export default function AgentDashboard() {
                       {commission.plan?.plan_name || "N/A"}
                     </td>
                     <td className="py-3">
-                      <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full">
                         L{commission.level}
                       </span>
                     </td>
@@ -795,7 +817,7 @@ export default function AgentDashboard() {
             onClick={() => router.push("/agent-network")}
             className="bg-white rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow text-left"
           >
-            <Users className="w-8 h-8 text-blue-600 mb-3" />
+            <Users className="w-8 h-8 text-yellow-600 mb-3" />
             <h3 className="font-semibold text-gray-900 mb-1">My Network</h3>
             <p className="text-sm text-gray-600">View your referral tree</p>
           </button>

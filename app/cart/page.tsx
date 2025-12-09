@@ -500,26 +500,21 @@ export default function CartPage() {
     <div className="min-h-screen bg-white">
       {/* Header */}
       <div className="border-b border-gray-100">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
-          <button
-            onClick={handleBack}
-            className="p-1.5 hover:bg-gray-50 rounded-lg transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-700" />
-          </button>
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
+       
           <h1 className="text-lg font-semibold text-gray-900">Checkout</h1>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto p-4 md:p-6">
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
         {/* 🔥 NEW: Show agent status banner */}
         {isExistingAgent && sponsorInfo && (
-          <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-4">
-            <p className="text-sm font-medium text-green-900">
+          <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <p className="text-sm font-medium text-yellow-900">
               ✓ You're an existing agent under:{" "}
               <span className="font-bold">{sponsorInfo.name}</span>
             </p>
-            <p className="text-xs text-green-700 mt-1">
+            <p className="text-xs text-yellow-700 mt-1">
               No referral code needed for this purchase
             </p>
           </div>
@@ -571,7 +566,7 @@ export default function CartPage() {
                     key={index}
                     className="flex items-start gap-2 text-sm text-gray-600"
                   >
-                    <CheckCircle className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                    <CheckCircle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
                     <span>{feature}</span>
                   </li>
                 ))}
@@ -694,8 +689,8 @@ export default function CartPage() {
 
                 {/* 🔥 NEW: Show sponsor info for existing agents */}
                 {isExistingAgent && sponsorInfo && (
-                  <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-3">
-                    <p className="text-sm font-medium text-green-900">
+                  <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p className="text-sm font-medium text-yellow-900">
                       ✓ Purchasing under:{" "}
                       <span className="font-bold">{sponsorInfo.name}</span>
                     </p>
@@ -730,9 +725,9 @@ export default function CartPage() {
                     </p>
 
                     {paymentScreenshot && (
-                      <div className="mt-3 bg-white p-3 rounded border-2 border-green-200 flex items-center justify-between">
+                      <div className="mt-3 bg-white p-3 rounded border-2 border-yellow-200 flex items-center justify-between">
                         <div className="flex items-center">
-                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <CheckCircle className="w-4 h-4 text-yellow-500 mr-2" />
                           <span className="text-xs text-gray-700 truncate">
                             {paymentScreenshot.name}
                           </span>
@@ -800,8 +795,8 @@ export default function CartPage() {
       {paymentSuccess && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-lg p-8 text-center max-w-md">
-            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-green-500" />
+            <div className="w-16 h-16 bg-yellow-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle className="w-8 h-8 text-yellow-500" />
             </div>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">
               Payment Submitted Successfully!

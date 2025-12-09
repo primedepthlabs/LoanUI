@@ -245,7 +245,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           {/* Logo Section */}
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-500 to-yellow-700 flex items-center justify-center">
                 <span className="text-white font-bold text-sm">SB</span>
               </div>
               <div>
@@ -295,7 +295,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                         onClick={item.toggle}
                         className={`w-full flex items-center justify-between p-3 rounded-lg text-left transition-colors ${
                           isActive
-                            ? "bg-blue-50 text-blue-600"
+                            ? "bg-yellow-50 text-yellow-700"
                             : "text-gray-600 hover:bg-gray-50"
                         }`}
                       >
@@ -321,7 +321,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 onClick={child.onClick}
                                 className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
                                   isChildActive
-                                    ? "bg-blue-50 text-blue-600"
+                                    ? "bg-yellow-50 text-yellow-700"
                                     : "text-gray-600 hover:bg-gray-50"
                                 }`}
                               >
@@ -343,7 +343,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     onClick={item.onClick}
                     className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors ${
                       isActive
-                        ? "bg-blue-50 text-blue-600"
+                        ? "bg-yellow-50 text-yellow-700"
                         : "text-gray-600 hover:bg-gray-50"
                     }`}
                   >

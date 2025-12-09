@@ -231,7 +231,7 @@ const LoanHistory: React.FC = () => {
       disbursed: {
         label: "Active",
         icon: Clock,
-        className: "bg-blue-100 text-blue-700 border-blue-200",
+        className: "bg-yellow-100 text-yellow-700 border-yellow-200",
       },
       completed: {
         label: "Completed",
@@ -246,7 +246,7 @@ const LoanHistory: React.FC = () => {
       pending: {
         label: "Pending",
         icon: AlertCircle,
-        className: "bg-yellow-100 text-yellow-700 border-yellow-200",
+        className: "bg-gray-100 text-gray-700 border-gray-200",
       },
       approved: {
         label: "Approved",
@@ -290,7 +290,7 @@ const LoanHistory: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-2 border-yellow-200 border-t-yellow-500 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading loan history...</p>
         </div>
       </div>
@@ -341,7 +341,7 @@ const LoanHistory: React.FC = () => {
                 placeholder="Search loans..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-text"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent cursor-text"
               />
             </div>
 
@@ -350,7 +350,7 @@ const LoanHistory: React.FC = () => {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as LoanStatus)}
-                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent cursor-pointer"
               >
                 <option value="all">All</option>
                 <option value="active">Active</option>
@@ -362,7 +362,7 @@ const LoanHistory: React.FC = () => {
               <select
                 value={sortOption}
                 onChange={(e) => setSortOption(e.target.value as SortOption)}
-                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent cursor-pointer"
               >
                 <option value="newest">Newest</option>
                 <option value="oldest">Oldest</option>
@@ -457,7 +457,7 @@ const LoanHistory: React.FC = () => {
                               -{loan.disbursement_interest}% / +
                               {loan.repayment_interest}%
                             </p>
-                            <p className="text-xs text-blue-600 font-medium">
+                            <p className="text-xs text-yellow-600 font-medium">
                               Total: {formatCurrency(loan.total_payable)}
                             </p>
                           </div>
@@ -503,7 +503,7 @@ const LoanHistory: React.FC = () => {
                                   className={`h-1.5 rounded-full transition-all ${
                                     loan.status === "completed"
                                       ? "bg-green-500"
-                                      : "bg-blue-500"
+                                      : "bg-yellow-500"
                                   }`}
                                   style={{
                                     width: `${Math.min(
@@ -524,7 +524,7 @@ const LoanHistory: React.FC = () => {
                               e.stopPropagation();
                               handleViewDetails(loan.id);
                             }}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                            className="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded transition-colors cursor-pointer"
                             title="View Details"
                           >
                             <Eye className="w-4 h-4" />
@@ -572,7 +572,7 @@ const LoanHistory: React.FC = () => {
                             </div>
                             <div>
                               <p className="text-gray-500">Total Payable</p>
-                              <p className="font-semibold text-blue-600">
+                              <p className="font-semibold text-yellow-600">
                                 {formatCurrency(loan.total_payable)}
                               </p>
                             </div>
@@ -630,7 +630,7 @@ const LoanHistory: React.FC = () => {
 
                           {/* Inline alerts */}
                           {loan.nextDueDate && loan.status === "disbursed" && (
-                            <div className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-1">
+                            <div className="text-xs text-yellow-700 bg-yellow-50 rounded px-2 py-1">
                               Next: {formatDate(loan.nextDueDate)}
                             </div>
                           )}
@@ -655,7 +655,7 @@ const LoanHistory: React.FC = () => {
                                 e.stopPropagation();
                                 handleViewDetails(loan.id);
                               }}
-                              className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg cursor-pointer"
+                              className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-gray-900 text-xs rounded-lg cursor-pointer"
                             >
                               <Eye className="w-3 h-3" />
                               View
@@ -675,4 +675,4 @@ const LoanHistory: React.FC = () => {
   );
 };
 
-export default LoanHistory;
+export default LoanHistory;   
