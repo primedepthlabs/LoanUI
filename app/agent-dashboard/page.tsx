@@ -394,7 +394,6 @@ export default function AgentDashboard() {
       <div className="bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 shadow-sm">
         <div className="max-w-9xl mx-auto px-4 py-6">
           <div className="flex items-center gap-4 mb-6">
-         
             <div>
               <h1 className="text-2xl font-bold text-white">
                 Earnings Dashboard
@@ -532,7 +531,7 @@ export default function AgentDashboard() {
                   />
                   <YAxis />
                   <Tooltip
-                    formatter={(value: any, name: string) => {
+                    formatter={(value: any, name?: string | number) => {
                       if (name === "amount")
                         return [
                           `₹${value.toLocaleString("en-IN")}`,
