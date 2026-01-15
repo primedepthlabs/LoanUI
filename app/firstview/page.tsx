@@ -6,26 +6,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ChevronRight, Lock, CheckCircle } from "lucide-react";
 import {
-  LogOut,
-  User,
-  Copy,
-  Home,
-  Briefcase,
-  Menu,
-  ChevronRight,
-  History,
-  Lock,
-  CheckCircle,
-  TableOfContents,
-  Network,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
-import {
   checkLoanUnlockStatus,
   LoanUnlockStatus,
 } from "@/lib/loanUnlockingService";
-
 import Image from "next/image";
 
 interface LoanOption {
@@ -38,46 +21,9 @@ interface LoanOption {
   sort_order: number;
 }
 
-interface SidebarChildItem {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  onClick: () => void;
-}
-
-interface SidebarParentItem {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  isParent: true;
-  open: boolean;
-  toggle: () => void;
-  children: SidebarChildItem[];
-}
-
-interface SidebarNormalItem {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  onClick: () => void;
-}
-
-type SidebarItem = SidebarParentItem | SidebarNormalItem;
-
-interface AgentWithPlans {
-  id: string;
-  referral_code: string;
-  agent_plans: Array<{
-    plans: {
-      plan_name: string;
-    };
-  }>;
-}
-
 interface UserData {
   id: string;
   email?: string;
-  // Add other user properties as needed
 }
 
 interface LanguageContent {
@@ -118,14 +64,7 @@ interface LoanWithProgress extends UserLoan {
   nextDueDate: string | null;
 }
 
-const LoanDashboard: React.FC = () => {
-function isParentItem(item: SidebarItem): item is SidebarParentItem {
-  return (item as SidebarParentItem).isParent === true;
-}
-
-// Main Dashboard Content Component
 function DashboardContent() {
-  const [selectedLoan, setSelectedLoan] = useState<string>("");
   const [loanOptions, setLoanOptions] = useState<LoanOption[]>([]);
   const [isLoadingLoans, setIsLoadingLoans] = useState(true);
   const [userLoans, setUserLoans] = useState<LoanWithProgress[]>([]);
@@ -133,15 +72,15 @@ function DashboardContent() {
   const [selectedUserLoans, setSelectedUserLoans] = useState<Set<string>>(
     new Set()
   );
-
-  const searchParams = useSearchParams();
-  const selectedLanguage = searchParams?.get("language") || "english";
-  const router = useRouter();
   const [user, setUser] = useState<UserData | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [loanUnlockStatus, setLoanUnlockStatus] = useState<
     Map<string, LoanUnlockStatus>
   >(new Map());
+
+  const searchParams = useSearchParams();
+  const selectedLanguage = searchParams?.get("language") || "english";
+  const router = useRouter();
 
   const languageContent: Record<string, LanguageContent> = {
     english: {
@@ -161,7 +100,8 @@ function DashboardContent() {
     },
   };
 
-  // Fetch loan options
+  const content = languageContent.english;
+
   const fetchLoanOptions = useCallback(async () => {
     try {
       setIsLoadingLoans(true);
@@ -181,7 +121,6 @@ function DashboardContent() {
     }
   }, []);
 
-  // Fetch user's active loans
   const fetchUserLoans = useCallback(async (userId: string) => {
     try {
       setIsLoadingUserLoans(true);
@@ -212,14 +151,12 @@ function DashboardContent() {
       const loansWithProgress: LoanWithProgress[] = loans.map((loan) => {
         const loanEmis =
           emis?.filter((emi) => emi.loan_application_id === loan.id) || [];
-
         const totalPaid = loanEmis.reduce(
           (sum, emi) => sum + emi.paid_amount,
           0
         );
         const totalRemaining = loan.total_payable - totalPaid;
         const progressPercentage = (totalPaid / loan.total_payable) * 100;
-
         const nextUnpaidEmi = loanEmis.find(
           (emi) =>
             emi.status === "pending" ||
@@ -246,102 +183,46 @@ function DashboardContent() {
     }
   }, []);
 
-  // Fetch loan unlock status
-  const fetchLoanUnlockStatus = useCallback(async (userId: string, loans: LoanOption[]) => {
-    const statusMap = new Map<string, LoanUnlockStatus>();
+  const fetchLoanUnlockStatus = useCallback(
+    async (userId: string, loans: LoanOption[]) => {
+      const statusMap = new Map<string, LoanUnlockStatus>();
+      for (const loan of loans) {
+        const status = await checkLoanUnlockStatus(
+          userId,
+          loan.id,
+          loan.sort_order
+        );
+        statusMap.set(loan.id, status);
+      }
+      setLoanUnlockStatus(statusMap);
+    },
+    []
+  );
 
-    for (const loan of loans) {
-      const status = await checkLoanUnlockStatus(
-        userId,
-        loan.id,
-        loan.sort_order
-      );
-      statusMap.set(loan.id, status);
-    }
-
-    setLoanUnlockStatus(statusMap);
-  }, []);
-
-  const handleKnowMore = (loanId: string) => {
-  const checkAgentStatus = useCallback(async (authUserId: string) => {
-    try {
-      console.log("🔍 Checking agent status for auth_user_id:", authUserId);
-
-      // Step 1: Get user's internal ID from users table
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("auth_user_id", authUserId)
-        .single();
-
-      console.log("📊 User data:", userData);
-
-      if (!userData) {
-        console.log("❌ No user found");
-        setIsAgent(false);
+  const handleKnowMore = useCallback(
+    (loanId: string) => {
+      if (!user) {
+        router.push("/login");
         return;
       }
 
-      // Step 2: Check if this user is an agent (use maybeSingle instead of single)
-      const { data } = await supabase
-        .from("agents")
-        .select(
-          `
-    id,
-    referral_code,
-    agent_plans (
-      plans ( plan_name )
-    )
-  `
-        )
-        .eq("user_id", userData.id)
-        .maybeSingle();
-
-      const agent = data as AgentWithPlans | null;
-
-      console.log("🎯 Agent data:", agent);
-
-      if (agent) {
-        setIsAgent(true);
-        setHasPurchasedCourse(true);
-        setAgentPlan(agent?.agent_plans?.[0]?.plans?.plan_name ?? "");
-        setAgentReferralCode(agent.referral_code ?? "");
-      } else {
-        setIsAgent(false);
-        setAgentPlan("");
-        setAgentReferralCode("");
+      const unlockStatus = loanUnlockStatus.get(loanId);
+      if (unlockStatus && !unlockStatus.isUnlocked) {
+        alert(unlockStatus.reason);
+        return;
       }
-    } catch (error) {
-      console.error("Error checking agent status:", error);
-      setIsAgent(false);
-    }
-  }, []);
 
-  const copyReferralCode = useCallback(() => {
-    navigator.clipboard.writeText(agentReferralCode);
-    setCopiedReferral(true);
-    setTimeout(() => setCopiedReferral(false), 2000);
-  }, [agentReferralCode]);
+      router.push(`/loan-details/${loanId}`);
+    },
+    [user, loanUnlockStatus, router]
+  );
 
-  const handleKnowMore = useCallback((loanId: string) => {
-    if (!user) {
-      router.push("/login");
-      return;
-    }
-
-    const unlockStatus = loanUnlockStatus.get(loanId);
-
-    if (unlockStatus && !unlockStatus.isUnlocked) {
-      alert(unlockStatus.reason);
-      return;
-    }
-
-    router.push(`/loan-details/${loanId}`);
-  }, [user, loanUnlockStatus, router]);
-
-  const handleViewLoanDetails = useCallback((loanId: string) => {
-    router.push(`/my-loan/${loanId}`);
-  }, [router]);
+  const handleViewLoanDetails = useCallback(
+    (loanId: string) => {
+      router.push(`/my-loan/${loanId}`);
+    },
+    [router]
+  );
 
   const toggleLoanSelection = useCallback((loanId: string) => {
     setSelectedUserLoans((prev) => {
@@ -363,38 +244,7 @@ function DashboardContent() {
     }
   }, [selectedUserLoans.size, userLoans]);
 
-  const handleLoanSelect = useCallback((loanId: string) => {
-    setSelectedLoan(loanId);
-  }, []);
-
-  const handleLogout = useCallback(async () => {
-    try {
-      await supabase.auth.signOut();
-      try {
-        localStorage.removeItem("hasPurchasedCourse");
-      } catch {}
-      setUser(null);
-      setHasPurchasedCourse(false);
-      setActiveView("home");
-      router.push("/login");
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-  }, [router]);
-
   const handleLoginSignup = useCallback(() => router.push("/login"), [router]);
-  const handleProfileClick = useCallback(() => router.push("/profile"), [router]);
-  const handleEarnAsAgent = useCallback(() => router.push("/agent-courses"), [router]);
-  const handleLoanHistory = useCallback(() => router.push("/loan-history"), [router]);
-  const handleContentForAgents = useCallback(() => router.push("/agent-content"), [router]);
-  const handleAgentNetwork = useCallback(() => router.push("/agent-network"), [router]);
-  const handleAgentDashboard = useCallback(() => {
-    if (!hasPurchasedCourse) {
-      router.push("/agent-courses");
-      return;
-    }
-    router.push("/agent-dashboard");
-  }, [hasPurchasedCourse, router]);
 
   const formatDate = useCallback((dateString: string): string => {
     return new Date(dateString).toLocaleDateString("en-IN", {
@@ -416,7 +266,6 @@ function DashboardContent() {
         setUser(session?.user ?? null);
 
         if (session?.user) {
-          await checkAgentStatus(session.user.id);
           await fetchUserLoans(session.user.id);
         }
       } catch (err) {
@@ -424,21 +273,6 @@ function DashboardContent() {
       } finally {
         if (mounted) {
           setIsCheckingAuth(false);
-        if (!mounted) return;
-        setIsCheckingAuth(false);
-
-        try {
-          const localFlag = localStorage.getItem("hasPurchasedCourse");
-          if (localFlag === "true") {
-            setHasPurchasedCourse(true);
-          }
-        } catch (e) {
-          // ignore localStorage errors
-        }
-
-        const incomingView = searchParams?.get("view");
-        if (incomingView === "agent-dashboard") {
-          setActiveView("agent-dashboard");
         }
       }
     };
@@ -452,7 +286,6 @@ function DashboardContent() {
       if (!mounted) return;
       setUser(session?.user || null);
       if (session?.user) {
-        await checkAgentStatus(session.user.id);
         await fetchUserLoans(session.user.id);
       } else {
         setUserLoans([]);
@@ -463,19 +296,14 @@ function DashboardContent() {
       mounted = false;
       subscription?.unsubscribe?.();
     };
-  }, []);
+  }, [fetchLoanOptions, fetchUserLoans]);
 
-  // Listen to loan_applications changes
-  }, [checkAgentStatus, fetchLoanOptions, fetchUserLoans, searchParams]);
-
-  // Fetch loan unlock status when user or loan options change
   useEffect(() => {
     if (user && loanOptions.length > 0) {
       fetchLoanUnlockStatus(user.id, loanOptions);
     }
   }, [user, loanOptions, fetchLoanUnlockStatus]);
 
-  // 1. Listen to loan_applications changes
   useEffect(() => {
     if (!user) return;
 
@@ -489,12 +317,8 @@ function DashboardContent() {
           table: "loan_applications",
           filter: `user_id=eq.${user.id}`,
         },
-        (payload) => {
-          console.log("User loan updated:", payload);
         () => {
-          // Reload user's loans
           fetchUserLoans(user.id);
-
           if (loanOptions.length > 0) {
             fetchLoanUnlockStatus(user.id, loanOptions);
           }
@@ -507,12 +331,10 @@ function DashboardContent() {
     };
   }, [user, loanOptions, fetchUserLoans, fetchLoanUnlockStatus]);
 
-  // Listen to loan_emis changes
   useEffect(() => {
     if (!user || userLoans.length === 0) return;
 
     const loanIds = userLoans.map((loan) => loan.id);
-
     const channel = supabase
       .channel(`dashboard-emis-${user.id}`)
       .on(
@@ -523,13 +345,9 @@ function DashboardContent() {
           table: "loan_emis",
         },
         (payload: any) => {
-          console.log("EMI updated:", payload);
-
-          // Check if this EMI belongs to user's loans
           const affectedLoanId =
             payload.new?.loan_application_id ||
             payload.old?.loan_application_id;
-
           if (loanIds.includes(affectedLoanId)) {
             fetchUserLoans(user.id);
           }
@@ -542,7 +360,6 @@ function DashboardContent() {
     };
   }, [user, userLoans, fetchUserLoans]);
 
-  // Listen to loan_options changes
   useEffect(() => {
     const channel = supabase
       .channel("dashboard-loan-options")
@@ -553,17 +370,8 @@ function DashboardContent() {
           schema: "public",
           table: "loan_options",
         },
-        (payload) => {
-          console.log("Loan option updated:", payload);
         () => {
-          // Reload loan options
           fetchLoanOptions();
-
-          if (user) {
-            fetchLoanOptions().then(() => {
-              fetchLoanUnlockStatus(user.id, loanOptions);
-            });
-          }
         }
       )
       .subscribe();
@@ -571,21 +379,7 @@ function DashboardContent() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, loanOptions]);
-
   }, [fetchLoanOptions]);
-
-  const content = languageContent.english;
-
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
-
-  const handleLoginSignup = () => router.push("/login");
 
   if (isLoadingLoans) {
     return (
@@ -600,7 +394,6 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header Section */}
       <div className="relative bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 p-4">
         <div className="absolute inset-0 opacity-10">
           <div
@@ -615,20 +408,15 @@ function DashboardContent() {
 
         <div className="flex justify-center mb-4 relative z-10">
           <div className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
-            <img src="logo.jpg" alt="logo" className="w-10 h-10 rounded-full" />
+            <Image
+              src="/logo.jpg"
+              alt="logo"
+              width={40}
+              height={40}
+              className="rounded-full"
+            />
           </div>
         </div>
-          <div className="flex justify-center mb-4 relative z-10">
-            <div className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
-              <Image
-                src="/logo.jpg"
-                alt="logo"
-                width={40}
-                height={40}
-                className="rounded-full"
-              />
-            </div>
-          </div>
 
         <div className="text-center text-white relative z-10">
           <h1 className="text-xl font-bold mb-2">{content.welcome}</h1>
@@ -636,9 +424,7 @@ function DashboardContent() {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="p-4 -mt-2">
-        {/* Live Loans Section */}
         {user && userLoans.length > 0 && (
           <div className="mb-6">
             <div className="flex items-center justify-between mb-4">
@@ -647,7 +433,6 @@ function DashboardContent() {
               </h2>
             </div>
 
-            {/* Select All */}
             <div className="flex items-center justify-between mb-3 px-2">
               <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
                 <input
@@ -663,7 +448,6 @@ function DashboardContent() {
               </label>
             </div>
 
-            {/* Loan Cards */}
             <div className="space-y-3">
               {isLoadingUserLoans ? (
                 <div className="bg-white rounded-lg p-8 text-center">
@@ -697,7 +481,6 @@ function DashboardContent() {
                             </span>
                           </div>
 
-                          {/* Loan Details Grid */}
                           <div className="grid grid-cols-3 gap-3 mt-3 mb-3">
                             <div>
                               <p className="text-xs text-gray-500">
@@ -728,7 +511,6 @@ function DashboardContent() {
                             </div>
                           </div>
 
-                          {/* Progress Bar */}
                           <div className="mb-2">
                             <div className="w-full bg-gray-200 rounded-full h-2">
                               <div
@@ -743,7 +525,6 @@ function DashboardContent() {
                             </div>
                           </div>
 
-                          {/* Remaining Amount */}
                           <div className="flex items-center justify-between">
                             <p className="text-sm text-gray-600">
                               {content.remaining}:{" "}
@@ -774,7 +555,6 @@ function DashboardContent() {
           </div>
         )}
 
-        {/* Available Loan Options */}
         <div>
           {user && userLoans.length > 0 && (
             <h2 className="text-lg font-semibold text-gray-800 mb-4">
@@ -906,7 +686,6 @@ function DashboardContent() {
   );
 }
 
-// Loading component
 const LoadingSpinner = () => (
   <div className="min-h-screen bg-gray-100 flex items-center justify-center">
     <div className="text-center">
@@ -916,7 +695,6 @@ const LoadingSpinner = () => (
   </div>
 );
 
-// Main page component with Suspense
 const LoanDashboard: React.FC = () => {
   return (
     <Suspense fallback={<LoadingSpinner />}>

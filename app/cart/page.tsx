@@ -80,7 +80,46 @@ function CartContent() {
     id: string;
     name: string;
   } | null>(null);
+  // 🔥 Check if user is already an agent
+  const checkIfUserIsAgent = async (authUserId: string) => {
+    try {
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("id")
+        .eq("auth_user_id", authUserId)
+        .single();
 
+      if (userError || !userData) return;
+
+      const { data: agentData } = await supabase
+        .from("agents")
+        .select("id, sponsor_id")
+        .eq("user_id", userData.id)
+        .maybeSingle();
+
+      if (agentData) {
+        setIsExistingAgent(true);
+        setCurrentAgentId(agentData.id);
+
+        if (agentData.sponsor_id) {
+          const { data: sponsorData } = await supabase
+            .from("agents")
+            .select("id, users(full_name)")
+            .eq("id", agentData.sponsor_id)
+            .single();
+
+          if (sponsorData) {
+            setSponsorInfo({
+              id: sponsorData.id,
+              name: (sponsorData.users as any)?.full_name || "Your Sponsor",
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error checking agent status:", error);
+    }
+  };
   // 🔥 Auto-fill referral code from URL
   useEffect(() => {
     const refFromUrl = searchParams?.get("ref") ?? "";
@@ -325,7 +364,7 @@ function CartContent() {
         console.log("Creating immediate commissions for existing agent...");
 
         const commissionResult = await calculateCommissions(
-          paymentData.id,
+          data.id,
           currentAgentId,
           selectedPlan.id,
           selectedPlan.amount
