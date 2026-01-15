@@ -1,15 +1,32 @@
-// app/dashboard/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ChevronRight, Lock, CheckCircle } from "lucide-react";
 import {
+  LogOut,
+  User,
+  Copy,
+  Home,
+  Briefcase,
+  Menu,
+  ChevronRight,
+  History,
+  Lock,
+  CheckCircle,
+  TableOfContents,
+  Network,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
+import {
   checkLoanUnlockStatus,
   LoanUnlockStatus,
 } from "@/lib/loanUnlockingService";
+
+import Image from "next/image";
 
 interface LoanOption {
   id: string;
@@ -19,6 +36,48 @@ interface LoanOption {
   icon: string;
   is_active: boolean;
   sort_order: number;
+}
+
+interface SidebarChildItem {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
+}
+
+interface SidebarParentItem {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  isParent: true;
+  open: boolean;
+  toggle: () => void;
+  children: SidebarChildItem[];
+}
+
+interface SidebarNormalItem {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
+}
+
+type SidebarItem = SidebarParentItem | SidebarNormalItem;
+
+interface AgentWithPlans {
+  id: string;
+  referral_code: string;
+  agent_plans: Array<{
+    plans: {
+      plan_name: string;
+    };
+  }>;
+}
+
+interface UserData {
+  id: string;
+  email?: string;
+  // Add other user properties as needed
 }
 
 interface LanguageContent {
@@ -60,6 +119,13 @@ interface LoanWithProgress extends UserLoan {
 }
 
 const LoanDashboard: React.FC = () => {
+function isParentItem(item: SidebarItem): item is SidebarParentItem {
+  return (item as SidebarParentItem).isParent === true;
+}
+
+// Main Dashboard Content Component
+function DashboardContent() {
+  const [selectedLoan, setSelectedLoan] = useState<string>("");
   const [loanOptions, setLoanOptions] = useState<LoanOption[]>([]);
   const [isLoadingLoans, setIsLoadingLoans] = useState(true);
   const [userLoans, setUserLoans] = useState<LoanWithProgress[]>([]);
@@ -69,9 +135,9 @@ const LoanDashboard: React.FC = () => {
   );
 
   const searchParams = useSearchParams();
-  const selectedLanguage = searchParams.get("language") || "english";
+  const selectedLanguage = searchParams?.get("language") || "english";
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<UserData | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [loanUnlockStatus, setLoanUnlockStatus] = useState<
     Map<string, LoanUnlockStatus>
@@ -96,7 +162,7 @@ const LoanDashboard: React.FC = () => {
   };
 
   // Fetch loan options
-  const fetchLoanOptions = async () => {
+  const fetchLoanOptions = useCallback(async () => {
     try {
       setIsLoadingLoans(true);
       const { data, error } = await supabase
@@ -113,10 +179,10 @@ const LoanDashboard: React.FC = () => {
     } finally {
       setIsLoadingLoans(false);
     }
-  };
+  }, []);
 
   // Fetch user's active loans
-  const fetchUserLoans = async (userId: string) => {
+  const fetchUserLoans = useCallback(async (userId: string) => {
     try {
       setIsLoadingUserLoans(true);
 
@@ -178,10 +244,10 @@ const LoanDashboard: React.FC = () => {
     } finally {
       setIsLoadingUserLoans(false);
     }
-  };
+  }, []);
 
   // Fetch loan unlock status
-  const fetchLoanUnlockStatus = async (userId: string, loans: LoanOption[]) => {
+  const fetchLoanUnlockStatus = useCallback(async (userId: string, loans: LoanOption[]) => {
     const statusMap = new Map<string, LoanUnlockStatus>();
 
     for (const loan of loans) {
@@ -194,15 +260,70 @@ const LoanDashboard: React.FC = () => {
     }
 
     setLoanUnlockStatus(statusMap);
-  };
-
-  useEffect(() => {
-    if (user && loanOptions.length > 0) {
-      fetchLoanUnlockStatus(user.id, loanOptions);
-    }
-  }, [user, loanOptions]);
+  }, []);
 
   const handleKnowMore = (loanId: string) => {
+  const checkAgentStatus = useCallback(async (authUserId: string) => {
+    try {
+      console.log("🔍 Checking agent status for auth_user_id:", authUserId);
+
+      // Step 1: Get user's internal ID from users table
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("id")
+        .eq("auth_user_id", authUserId)
+        .single();
+
+      console.log("📊 User data:", userData);
+
+      if (!userData) {
+        console.log("❌ No user found");
+        setIsAgent(false);
+        return;
+      }
+
+      // Step 2: Check if this user is an agent (use maybeSingle instead of single)
+      const { data } = await supabase
+        .from("agents")
+        .select(
+          `
+    id,
+    referral_code,
+    agent_plans (
+      plans ( plan_name )
+    )
+  `
+        )
+        .eq("user_id", userData.id)
+        .maybeSingle();
+
+      const agent = data as AgentWithPlans | null;
+
+      console.log("🎯 Agent data:", agent);
+
+      if (agent) {
+        setIsAgent(true);
+        setHasPurchasedCourse(true);
+        setAgentPlan(agent?.agent_plans?.[0]?.plans?.plan_name ?? "");
+        setAgentReferralCode(agent.referral_code ?? "");
+      } else {
+        setIsAgent(false);
+        setAgentPlan("");
+        setAgentReferralCode("");
+      }
+    } catch (error) {
+      console.error("Error checking agent status:", error);
+      setIsAgent(false);
+    }
+  }, []);
+
+  const copyReferralCode = useCallback(() => {
+    navigator.clipboard.writeText(agentReferralCode);
+    setCopiedReferral(true);
+    setTimeout(() => setCopiedReferral(false), 2000);
+  }, [agentReferralCode]);
+
+  const handleKnowMore = useCallback((loanId: string) => {
     if (!user) {
       router.push("/login");
       return;
@@ -216,13 +337,13 @@ const LoanDashboard: React.FC = () => {
     }
 
     router.push(`/loan-details/${loanId}`);
-  };
+  }, [user, loanUnlockStatus, router]);
 
-  const handleViewLoanDetails = (loanId: string) => {
+  const handleViewLoanDetails = useCallback((loanId: string) => {
     router.push(`/my-loan/${loanId}`);
-  };
+  }, [router]);
 
-  const toggleLoanSelection = (loanId: string) => {
+  const toggleLoanSelection = useCallback((loanId: string) => {
     setSelectedUserLoans((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(loanId)) {
@@ -232,15 +353,56 @@ const LoanDashboard: React.FC = () => {
       }
       return newSet;
     });
-  };
+  }, []);
 
-  const toggleSelectAll = () => {
+  const toggleSelectAll = useCallback(() => {
     if (selectedUserLoans.size === userLoans.length) {
       setSelectedUserLoans(new Set());
     } else {
       setSelectedUserLoans(new Set(userLoans.map((loan) => loan.id)));
     }
-  };
+  }, [selectedUserLoans.size, userLoans]);
+
+  const handleLoanSelect = useCallback((loanId: string) => {
+    setSelectedLoan(loanId);
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+      try {
+        localStorage.removeItem("hasPurchasedCourse");
+      } catch {}
+      setUser(null);
+      setHasPurchasedCourse(false);
+      setActiveView("home");
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  }, [router]);
+
+  const handleLoginSignup = useCallback(() => router.push("/login"), [router]);
+  const handleProfileClick = useCallback(() => router.push("/profile"), [router]);
+  const handleEarnAsAgent = useCallback(() => router.push("/agent-courses"), [router]);
+  const handleLoanHistory = useCallback(() => router.push("/loan-history"), [router]);
+  const handleContentForAgents = useCallback(() => router.push("/agent-content"), [router]);
+  const handleAgentNetwork = useCallback(() => router.push("/agent-network"), [router]);
+  const handleAgentDashboard = useCallback(() => {
+    if (!hasPurchasedCourse) {
+      router.push("/agent-courses");
+      return;
+    }
+    router.push("/agent-dashboard");
+  }, [hasPurchasedCourse, router]);
+
+  const formatDate = useCallback((dateString: string): string => {
+    return new Date(dateString).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -254,6 +416,7 @@ const LoanDashboard: React.FC = () => {
         setUser(session?.user ?? null);
 
         if (session?.user) {
+          await checkAgentStatus(session.user.id);
           await fetchUserLoans(session.user.id);
         }
       } catch (err) {
@@ -261,6 +424,21 @@ const LoanDashboard: React.FC = () => {
       } finally {
         if (mounted) {
           setIsCheckingAuth(false);
+        if (!mounted) return;
+        setIsCheckingAuth(false);
+
+        try {
+          const localFlag = localStorage.getItem("hasPurchasedCourse");
+          if (localFlag === "true") {
+            setHasPurchasedCourse(true);
+          }
+        } catch (e) {
+          // ignore localStorage errors
+        }
+
+        const incomingView = searchParams?.get("view");
+        if (incomingView === "agent-dashboard") {
+          setActiveView("agent-dashboard");
         }
       }
     };
@@ -274,6 +452,7 @@ const LoanDashboard: React.FC = () => {
       if (!mounted) return;
       setUser(session?.user || null);
       if (session?.user) {
+        await checkAgentStatus(session.user.id);
         await fetchUserLoans(session.user.id);
       } else {
         setUserLoans([]);
@@ -287,6 +466,16 @@ const LoanDashboard: React.FC = () => {
   }, []);
 
   // Listen to loan_applications changes
+  }, [checkAgentStatus, fetchLoanOptions, fetchUserLoans, searchParams]);
+
+  // Fetch loan unlock status when user or loan options change
+  useEffect(() => {
+    if (user && loanOptions.length > 0) {
+      fetchLoanUnlockStatus(user.id, loanOptions);
+    }
+  }, [user, loanOptions, fetchLoanUnlockStatus]);
+
+  // 1. Listen to loan_applications changes
   useEffect(() => {
     if (!user) return;
 
@@ -302,6 +491,8 @@ const LoanDashboard: React.FC = () => {
         },
         (payload) => {
           console.log("User loan updated:", payload);
+        () => {
+          // Reload user's loans
           fetchUserLoans(user.id);
 
           if (loanOptions.length > 0) {
@@ -314,7 +505,7 @@ const LoanDashboard: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, loanOptions]);
+  }, [user, loanOptions, fetchUserLoans, fetchLoanUnlockStatus]);
 
   // Listen to loan_emis changes
   useEffect(() => {
@@ -334,6 +525,7 @@ const LoanDashboard: React.FC = () => {
         (payload: any) => {
           console.log("EMI updated:", payload);
 
+          // Check if this EMI belongs to user's loans
           const affectedLoanId =
             payload.new?.loan_application_id ||
             payload.old?.loan_application_id;
@@ -348,7 +540,7 @@ const LoanDashboard: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, userLoans]);
+  }, [user, userLoans, fetchUserLoans]);
 
   // Listen to loan_options changes
   useEffect(() => {
@@ -363,6 +555,8 @@ const LoanDashboard: React.FC = () => {
         },
         (payload) => {
           console.log("Loan option updated:", payload);
+        () => {
+          // Reload loan options
           fetchLoanOptions();
 
           if (user) {
@@ -378,6 +572,8 @@ const LoanDashboard: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [user, loanOptions]);
+
+  }, [fetchLoanOptions]);
 
   const content = languageContent.english;
 
@@ -422,6 +618,17 @@ const LoanDashboard: React.FC = () => {
             <img src="logo.jpg" alt="logo" className="w-10 h-10 rounded-full" />
           </div>
         </div>
+          <div className="flex justify-center mb-4 relative z-10">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
+              <Image
+                src="/logo.jpg"
+                alt="logo"
+                width={40}
+                height={40}
+                className="rounded-full"
+              />
+            </div>
+          </div>
 
         <div className="text-center text-white relative z-10">
           <h1 className="text-xl font-bold mb-2">{content.welcome}</h1>
@@ -696,6 +903,25 @@ const LoanDashboard: React.FC = () => {
         )}
       </div>
     </div>
+  );
+}
+
+// Loading component
+const LoadingSpinner = () => (
+  <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mx-auto"></div>
+      <p className="mt-4 text-gray-600">Loading dashboard...</p>
+    </div>
+  </div>
+);
+
+// Main page component with Suspense
+const LoanDashboard: React.FC = () => {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <DashboardContent />
+    </Suspense>
   );
 };
 

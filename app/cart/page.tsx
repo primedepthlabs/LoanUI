@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { calculateCommissions } from "@/lib/commissionCalculation";
@@ -26,12 +26,40 @@ interface Plan {
   is_active: boolean;
 }
 
-export default function CartPage() {
+interface User {
+  id: string;
+  email?: string;
+  // Add other user properties as needed
+}
+
+interface PaymentSettings {
+  qr_code_url: string;
+  payment_amount: number;
+}
+
+interface UploadResult {
+  success: boolean;
+  publicUrl?: string;
+  error?: string;
+}
+
+// Loading component
+const LoadingSpinner = () => (
+  <div className="min-h-screen bg-white flex items-center justify-center">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-10 w-10 border-2 border-yellow-200 border-t-yellow-500 mx-auto mb-3"></div>
+      <p className="text-sm text-gray-500">Loading...</p>
+    </div>
+  </div>
+);
+
+// Main CartContent component wrapped in Suspense
+function CartContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const planId = searchParams?.get("plan") ?? "";
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
@@ -40,10 +68,8 @@ export default function CartPage() {
   const [planLoading, setPlanLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
-  const [paymentSettings, setPaymentSettings] = useState<{
-    qr_code_url: string;
-    payment_amount: number;
-  } | null>(null);
+  const [paymentSettings, setPaymentSettings] =
+    useState<PaymentSettings | null>(null);
   const [loadingPaymentSettings, setLoadingPaymentSettings] = useState(false);
   const [referralCode, setReferralCode] = useState<string>("");
 
@@ -64,7 +90,7 @@ export default function CartPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    (async () => {
+    const checkAuth = async () => {
       setAuthLoading(true);
       try {
         const { data, error } = await supabase.auth.getSession();
@@ -75,7 +101,7 @@ export default function CartPage() {
         if (!session?.user) {
           router.push(
             `/login?returnTo=${encodeURIComponent(
-              location.pathname + location.search
+              window.location.pathname + window.location.search
             )}`
           );
         } else {
@@ -90,83 +116,54 @@ export default function CartPage() {
       } finally {
         setAuthLoading(false);
       }
-    })();
-  }, []);
+    };
 
-  // 🔥 NEW: Check if user is already an agent
-  const checkIfUserIsAgent = async (authUserId: string) => {
+    checkAuth();
+  }, [router]);
+
+  const getPaymentSettings = async (): Promise<{
+    success: boolean;
+    settings?: PaymentSettings;
+    error?: string;
+  }> => {
     try {
-      // Get user's ID from users table
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("auth_user_id", authUserId)
+      const { data, error } = await supabase
+        .from("payment_settings")
+        .select("qr_code_url, payment_amount")
         .single();
 
-      if (userData) {
-        // Check if user is an agent
-        const { data: agentData } = await supabase
-          .from("agents")
-          .select("id, sponsor_id")
-          .eq("user_id", userData.id)
-          .single();
-
-        if (agentData) {
-          setIsExistingAgent(true);
-          setCurrentAgentId(agentData.id);
-
-          // Get sponsor info if exists
-          if (agentData.sponsor_id) {
-            const { data: sponsorAgent } = await supabase
-              .from("agents")
-              .select("user_id")
-              .eq("id", agentData.sponsor_id)
-              .single();
-
-            if (sponsorAgent) {
-              const { data: sponsorUser } = await supabase
-                .from("users")
-                .select("name")
-                .eq("id", sponsorAgent.user_id)
-                .single();
-
-              setSponsorInfo({
-                id: agentData.sponsor_id,
-                name: sponsorUser?.name || "Your Sponsor",
-              });
-            }
-          }
-        } else {
-          setIsExistingAgent(false);
-        }
-      }
+      if (error) throw error;
+      return { success: true, settings: data };
     } catch (error) {
-      console.error("Agent check error:", error);
+      console.error("Payment settings fetch error:", error);
+      return { success: false, error: (error as Error).message };
     }
-  };
-
-  const paymentService = {
-    getPaymentSettings: async () => {
-      try {
-        const { data, error } = await supabase
-          .from("payment_settings")
-          .select("qr_code_url, payment_amount")
-          .single();
-
-        if (error) throw error;
-        return { success: true, settings: data };
-      } catch (error) {
-        console.error("Payment settings fetch error:", error);
-        return { success: false, error: (error as Error).message };
-      }
-    },
   };
 
   useEffect(() => {
     if (showPaymentModal && !paymentSettings) {
+      const fetchPaymentSettings = async () => {
+        setLoadingPaymentSettings(true);
+        try {
+          const result = await getPaymentSettings();
+          if (result.success && result.settings) {
+            setPaymentSettings(result.settings);
+          } else {
+            alert("Failed to load payment settings. Please try again.");
+            setShowPaymentModal(false);
+          }
+        } catch (error) {
+          console.error("Error fetching payment settings:", error);
+          alert("Failed to load payment settings. Please try again.");
+          setShowPaymentModal(false);
+        } finally {
+          setLoadingPaymentSettings(false);
+        }
+      };
+
       fetchPaymentSettings();
     }
-  }, [showPaymentModal]);
+  }, [showPaymentModal, paymentSettings]);
 
   const handlePaymentScreenshotChange = (
     e: React.ChangeEvent<HTMLInputElement>
@@ -190,27 +187,11 @@ export default function CartPage() {
     setPaymentScreenshot(file);
   };
 
-  const fetchPaymentSettings = async () => {
-    setLoadingPaymentSettings(true);
-    try {
-      const result = await paymentService.getPaymentSettings();
-      if (result.success && result.settings) {
-        setPaymentSettings(result.settings);
-      } else {
-        alert("Failed to load payment settings. Please try again.");
-        setShowPaymentModal(false);
-      }
-    } catch (error) {
-      console.error("Error fetching payment settings:", error);
-      alert("Failed to load payment settings. Please try again.");
-      setShowPaymentModal(false);
-    } finally {
-      setLoadingPaymentSettings(false);
-    }
-  };
-
   // Upload payment screenshot to storage
-  const uploadPaymentScreenshot = async (file: File, userId: string) => {
+  const uploadPaymentScreenshot = async (
+    file: File,
+    userId: string
+  ): Promise<UploadResult> => {
     try {
       const fileExtension = file.name.split(".").pop();
       const fileName = `${userId}/course-payment-${Date.now()}.${fileExtension}`;
@@ -307,38 +288,7 @@ export default function CartPage() {
       }
     }
 
-    // 🔥 For existing agents, validate their sponsor has this plan
-    if (isExistingAgent && sponsorInfo?.id) {
-      try {
-        const { data: sponsorPlan, error: planCheckError } = await supabase
-          .from("agent_plans")
-          .select("id")
-          .eq("agent_id", sponsorInfo.id)
-          .eq("plan_id", selectedPlan.id)
-          .eq("is_active", true)
-          .maybeSingle();
-
-        if (planCheckError) {
-          console.error("Plan check error:", planCheckError);
-          setErrorMsg("Failed to validate sponsor's plan. Please try again.");
-          setIsProcessing(false);
-          return;
-        }
-
-        if (!sponsorPlan) {
-          setErrorMsg(
-            "Your sponsor doesn't have this plan. This plan is not available for purchase."
-          );
-          setIsProcessing(false);
-          return;
-        }
-      } catch (error) {
-        console.error("Validation error:", error);
-        setErrorMsg("Failed to validate sponsor's plan. Please try again.");
-        setIsProcessing(false);
-        return;
-      }
-    }
+    setErrorMsg(null);
 
     try {
       // 1. Upload payment screenshot
@@ -352,7 +302,7 @@ export default function CartPage() {
       }
 
       // 2. Create payment record in database
-      const { data: paymentData, error: paymentError } = await supabase
+      const { data, error: paymentError } = await supabase
         .from("course_payments")
         .insert([
           {
@@ -455,7 +405,7 @@ export default function CartPage() {
     if (!user) {
       router.push(
         `/login?returnTo=${encodeURIComponent(
-          location.pathname + location.search
+          window.location.pathname + window.location.search
         )}`
       );
       return;
@@ -470,14 +420,7 @@ export default function CartPage() {
   };
 
   if (authLoading || planLoading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-yellow-200 border-t-yellow-500 mx-auto mb-3"></div>
-          <p className="text-sm text-gray-500">Loading...</p>
-        </div>
-      </div>
-    );
+    return <LoadingSpinner />;
   }
 
   if (!selectedPlan) {
@@ -501,7 +444,6 @@ export default function CartPage() {
       {/* Header */}
       <div className="border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
-       
           <h1 className="text-lg font-semibold text-gray-900">Checkout</h1>
         </div>
       </div>
@@ -558,7 +500,7 @@ export default function CartPage() {
           {selectedPlan.features && selectedPlan.features.length > 0 && (
             <div className="p-6 border-b border-gray-100 bg-gray-50">
               <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                What's Included:
+                What&apos;s Included:
               </h3>
               <ul className="space-y-2">
                 {selectedPlan.features.map((feature, index) => (
@@ -652,10 +594,12 @@ export default function CartPage() {
                   </p>
                   <div className="border-2 border-yellow-200 rounded-lg p-4 bg-yellow-50 flex justify-center">
                     {paymentSettings?.qr_code_url ? (
-                      <img
-                        src={paymentSettings.qr_code_url}
-                        alt="Payment QR Code"
-                        className="w-64 h-64 object-contain"
+                      // Replace img with div or use next/image if configured
+                      <div
+                        className="w-64 h-64 bg-contain bg-center bg-no-repeat"
+                        style={{
+                          backgroundImage: `url(${paymentSettings.qr_code_url})`,
+                        }}
                       />
                     ) : (
                       <div className="w-64 h-64 flex items-center justify-center bg-white rounded">
@@ -664,39 +608,25 @@ export default function CartPage() {
                     )}
                   </div>
                 </div>
-
-                {/* 🔥 UPDATED: Referral Code Input - Only for non-agents */}
-                {!isExistingAgent && (
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Referral Code <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={referralCode}
-                      onChange={(e) =>
-                        setReferralCode(e.target.value.toUpperCase())
-                      }
-                      placeholder="Enter referral code"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent text-sm"
-                      maxLength={8}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Referral code is required for new agents
-                    </p>
-                  </div>
-                )}
-
-                {/* 🔥 NEW: Show sponsor info for existing agents */}
-                {isExistingAgent && sponsorInfo && (
-                  <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                    <p className="text-sm font-medium text-yellow-900">
-                      ✓ Purchasing under:{" "}
-                      <span className="font-bold">{sponsorInfo.name}</span>
-                    </p>
-                  </div>
-                )}
-
+                {/* Referral Code Input */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Referral Code (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={referralCode}
+                    onChange={(e) =>
+                      setReferralCode(e.target.value.toUpperCase())
+                    }
+                    placeholder="Enter referral code"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent text-sm"
+                    maxLength={8}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Leave empty if you don&apos;t have a referral code
+                  </p>
+                </div>
                 {/* Upload Payment Screenshot */}
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -818,5 +748,14 @@ export default function CartPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// Main page component with Suspense
+export default function CartPage() {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <CartContent />
+    </Suspense>
   );
 }
