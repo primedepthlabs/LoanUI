@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -24,12 +24,40 @@ interface Plan {
   is_active: boolean;
 }
 
-export default function CartPage() {
+interface User {
+  id: string;
+  email?: string;
+  // Add other user properties as needed
+}
+
+interface PaymentSettings {
+  qr_code_url: string;
+  payment_amount: number;
+}
+
+interface UploadResult {
+  success: boolean;
+  publicUrl?: string;
+  error?: string;
+}
+
+// Loading component
+const LoadingSpinner = () => (
+  <div className="min-h-screen bg-white flex items-center justify-center">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-10 w-10 border-2 border-yellow-200 border-t-yellow-500 mx-auto mb-3"></div>
+      <p className="text-sm text-gray-500">Loading...</p>
+    </div>
+  </div>
+);
+
+// Main CartContent component wrapped in Suspense
+function CartContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const planId = searchParams?.get("plan") ?? "";
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
@@ -38,10 +66,7 @@ export default function CartPage() {
   const [planLoading, setPlanLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
-  const [paymentSettings, setPaymentSettings] = useState<{
-    qr_code_url: string;
-    payment_amount: number;
-  } | null>(null);
+  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
   const [loadingPaymentSettings, setLoadingPaymentSettings] = useState(false);
   const [referralCode, setReferralCode] = useState<string>("");
 
@@ -54,7 +79,7 @@ export default function CartPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    (async () => {
+    const checkAuth = async () => {
       setAuthLoading(true);
       try {
         const { data, error } = await supabase.auth.getSession();
@@ -65,7 +90,7 @@ export default function CartPage() {
         if (!session?.user) {
           router.push(
             `/login?returnTo=${encodeURIComponent(
-              location.pathname + location.search
+              window.location.pathname + window.location.search
             )}`
           );
         }
@@ -77,31 +102,50 @@ export default function CartPage() {
       } finally {
         setAuthLoading(false);
       }
-    })();
-  }, []);
+    };
 
-  const paymentService = {
-    getPaymentSettings: async () => {
-      try {
-        const { data, error } = await supabase
-          .from("payment_settings")
-          .select("qr_code_url, payment_amount")
-          .single();
+    checkAuth();
+  }, [router]);
 
-        if (error) throw error;
-        return { success: true, settings: data };
-      } catch (error) {
-        console.error("Payment settings fetch error:", error);
-        return { success: false, error: (error as Error).message };
-      }
-    },
+  const getPaymentSettings = async (): Promise<{ success: boolean; settings?: PaymentSettings; error?: string }> => {
+    try {
+      const { data, error } = await supabase
+        .from("payment_settings")
+        .select("qr_code_url, payment_amount")
+        .single();
+
+      if (error) throw error;
+      return { success: true, settings: data };
+    } catch (error) {
+      console.error("Payment settings fetch error:", error);
+      return { success: false, error: (error as Error).message };
+    }
   };
 
   useEffect(() => {
     if (showPaymentModal && !paymentSettings) {
+      const fetchPaymentSettings = async () => {
+        setLoadingPaymentSettings(true);
+        try {
+          const result = await getPaymentSettings();
+          if (result.success && result.settings) {
+            setPaymentSettings(result.settings);
+          } else {
+            alert("Failed to load payment settings. Please try again.");
+            setShowPaymentModal(false);
+          }
+        } catch (error) {
+          console.error("Error fetching payment settings:", error);
+          alert("Failed to load payment settings. Please try again.");
+          setShowPaymentModal(false);
+        } finally {
+          setLoadingPaymentSettings(false);
+        }
+      };
+
       fetchPaymentSettings();
     }
-  }, [showPaymentModal]);
+  }, [showPaymentModal, paymentSettings]);
 
   const handlePaymentScreenshotChange = (
     e: React.ChangeEvent<HTMLInputElement>
@@ -125,27 +169,8 @@ export default function CartPage() {
     setPaymentScreenshot(file);
   };
 
-  const fetchPaymentSettings = async () => {
-    setLoadingPaymentSettings(true);
-    try {
-      const result = await paymentService.getPaymentSettings();
-      if (result.success && result.settings) {
-        setPaymentSettings(result.settings);
-      } else {
-        alert("Failed to load payment settings. Please try again.");
-        setShowPaymentModal(false);
-      }
-    } catch (error) {
-      console.error("Error fetching payment settings:", error);
-      alert("Failed to load payment settings. Please try again.");
-      setShowPaymentModal(false);
-    } finally {
-      setLoadingPaymentSettings(false);
-    }
-  };
-
   // Upload payment screenshot to storage
-  const uploadPaymentScreenshot = async (file: File, userId: string) => {
+  const uploadPaymentScreenshot = async (file: File, userId: string): Promise<UploadResult> => {
     try {
       const fileExtension = file.name.split(".").pop();
       const fileName = `${userId}/course-payment-${Date.now()}.${fileExtension}`;
@@ -179,6 +204,7 @@ export default function CartPage() {
 
     if (!paymentScreenshot || !user || !selectedPlan) {
       alert("Missing required information");
+      setIsProcessing(false);
       return;
     }
 
@@ -232,7 +258,7 @@ export default function CartPage() {
         return;
       }
     }
-    setIsProcessing(true);
+
     setErrorMsg(null);
 
     try {
@@ -247,7 +273,7 @@ export default function CartPage() {
       }
 
       // 2. Create payment record in database
-      const { data: paymentData, error: paymentError } = await supabase
+      const { data, error: paymentError } = await supabase
         .from("course_payments")
         .insert([
           {
@@ -326,7 +352,7 @@ export default function CartPage() {
     if (!user) {
       router.push(
         `/login?returnTo=${encodeURIComponent(
-          location.pathname + location.search
+          window.location.pathname + window.location.search
         )}`
       );
       return;
@@ -341,14 +367,7 @@ export default function CartPage() {
   };
 
   if (authLoading || planLoading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-yellow-200 border-t-yellow-500 mx-auto mb-3"></div>
-          <p className="text-sm text-gray-500">Loading...</p>
-        </div>
-      </div>
-    );
+    return <LoadingSpinner />;
   }
 
   if (!selectedPlan) {
@@ -421,7 +440,7 @@ export default function CartPage() {
           {selectedPlan.features && selectedPlan.features.length > 0 && (
             <div className="p-6 border-b border-gray-100 bg-gray-50">
               <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                What's Included:
+                What&apos;s Included:
               </h3>
               <ul className="space-y-2">
                 {selectedPlan.features.map((feature, index) => (
@@ -515,10 +534,10 @@ export default function CartPage() {
                   </p>
                   <div className="border-2 border-yellow-200 rounded-lg p-4 bg-yellow-50 flex justify-center">
                     {paymentSettings?.qr_code_url ? (
-                      <img
-                        src={paymentSettings.qr_code_url}
-                        alt="Payment QR Code"
-                        className="w-64 h-64 object-contain"
+                      // Replace img with div or use next/image if configured
+                      <div 
+                        className="w-64 h-64 bg-contain bg-center bg-no-repeat"
+                        style={{ backgroundImage: `url(${paymentSettings.qr_code_url})` }}
                       />
                     ) : (
                       <div className="w-64 h-64 flex items-center justify-center bg-white rounded">
@@ -543,7 +562,7 @@ export default function CartPage() {
                     maxLength={8}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Leave empty if you don't have a referral code
+                    Leave empty if you don&apos;t have a referral code
                   </p>
                 </div>
                 {/* Upload Payment Screenshot */}
@@ -661,5 +680,14 @@ export default function CartPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// Main page component with Suspense
+export default function CartPage() {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <CartContent />
+    </Suspense>
   );
 }
