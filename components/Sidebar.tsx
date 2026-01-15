@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+
 import {
   LogOut,
   User,
@@ -80,6 +81,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isAgent, setIsAgent] = useState(false);
   const [agentPlan, setAgentPlan] = useState<string>("");
   const [agentReferralCode, setAgentReferralCode] = useState<string>("");
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
 
   // Check agent status - exact same as dashboard
   const checkAgentStatus = async (authUserId: string) => {
@@ -134,6 +136,20 @@ const Sidebar: React.FC<SidebarProps> = ({
       setIsAgent(false);
     }
   };
+  //
+  useEffect(() => {
+    const handler = (e: any) => {
+      console.log("PWA install event fired");
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+
+    window.addEventListener("beforeinstallprompt", handler);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+    };
+  }, []);
 
   // Check agent status when user changes
   useEffect(() => {
@@ -359,6 +375,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className="p-4 border-t border-gray-200">
             {user ? (
               <div className="space-y-3">
+                {installPrompt && (
+                  <button
+                    onClick={() => installPrompt.prompt()}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors text-gray-600 hover:bg-gray-50"
+                  >
+                    <span className="font-medium">Install App</span>
+                  </button>
+                )}
                 <button
                   onClick={onProfileClick}
                   className="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors text-gray-600 hover:bg-gray-50 cursor-pointer"
@@ -366,6 +390,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <User className="w-5 h-5" />
                   <span className="font-medium">Profile</span>
                 </button>
+
                 <button
                   onClick={onLogout}
                   className="w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors text-red-600 hover:bg-red-50 cursor-pointer"
