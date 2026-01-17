@@ -269,13 +269,6 @@ function CartContent() {
       return;
     }
 
-    // 🔥 NEW: For non-agents, referral code is required
-    if (!isExistingAgent && !referralCode.trim()) {
-      setErrorMsg("Referral code is required for new agents");
-      setIsProcessing(false);
-      return;
-    }
-
     // 🔥 Validate sponsor has this plan (for both existing agents and new users)
     let sponsorIdToUse = sponsorInfo?.id || null;
 
@@ -723,15 +716,9 @@ function CartContent() {
                 {/* Submit Button */}
                 <button
                   onClick={submitPaymentForVerification}
-                  disabled={
-                    !paymentScreenshot ||
-                    isProcessing ||
-                    (!isExistingAgent && !referralCode.trim())
-                  }
+                  disabled={!paymentScreenshot || isProcessing}
                   className={`w-full py-3 sm:py-4 px-4 sm:px-6 rounded-lg font-semibold text-white text-sm sm:text-base transition-all duration-200 ${
-                    !paymentScreenshot ||
-                    isProcessing ||
-                    (!isExistingAgent && !referralCode.trim())
+                    !paymentScreenshot || isProcessing
                       ? "bg-gray-400 cursor-not-allowed"
                       : "bg-yellow-500 hover:bg-yellow-600 focus:ring-4 focus:ring-yellow-300 shadow-lg hover:shadow-xl"
                   }`}
