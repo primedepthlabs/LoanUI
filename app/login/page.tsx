@@ -41,7 +41,7 @@ const userService = {
     try {
       const { data, error } = await supabase
         .from("users")
-        .select("id, kyc_status, can_login, payment_status")
+        .select("id, kyc_status, can_login")
         .eq("auth_user_id", authUserId)
         .maybeSingle();
 
@@ -105,7 +105,7 @@ const LoginPage = () => {
         }, 3000);
       } else {
         setResetPasswordStatus(
-          result.error || "Failed to send reset email. Please try again."
+          result.error || "Failed to send reset email. Please try again.",
         );
       }
     } catch (error) {
@@ -142,11 +142,11 @@ const LoginPage = () => {
       if (!authResult.success) {
         if (authResult.error?.includes("Invalid login credentials")) {
           setLoginStatus(
-            "Invalid email or password. Please check your credentials."
+            "Invalid email or password. Please check your credentials.",
           );
         } else if (authResult.error?.includes("Email not confirmed")) {
           setLoginStatus(
-            "Please check your email and verify your account before signing in."
+            "Please check your email and verify your account before signing in.",
           );
         } else {
           setLoginStatus(authResult.error || "Login failed. Please try again.");
@@ -168,30 +168,14 @@ const LoginPage = () => {
         return;
       }
 
-      // Check KYC status before allowing login
-      // Check KYC status and payment status before allowing login
-      const { kyc_status, can_login, payment_status } = userResult.user as {
+      const { kyc_status, can_login } = userResult.user as {
         kyc_status: string;
         can_login: boolean;
-        payment_status?: string;
       };
 
       // Check if user can login based on can_login flag
       if (!can_login) {
         setLoginStatus("Login access denied. Contact administrator.");
-        await supabase.auth.signOut();
-        return;
-      }
-
-      // Check payment status
-      if (payment_status !== "approved") {
-        if (payment_status === "rejected") {
-          setLoginStatus("Your payment was rejected. Contact support.");
-        } else if (payment_status === "pending") {
-          setLoginStatus("Your payment is pending approval.");
-        } else {
-          setLoginStatus("Payment verification required.");
-        }
         await supabase.auth.signOut();
         return;
       }
@@ -204,12 +188,12 @@ const LoginPage = () => {
 
       if (kyc_status === "pending" || kyc_status === "under_review") {
         setLoginStatus(
-          "Your account is under review. Please wait for approval."
+          "Your account is under review. Please wait for approval.",
         );
         await supabase.auth.signOut();
       } else if (kyc_status === "rejected") {
         setLoginStatus(
-          "Your account has been rejected. Please contact support."
+          "Your account has been rejected. Please contact support.",
         );
         await supabase.auth.signOut();
       } else {

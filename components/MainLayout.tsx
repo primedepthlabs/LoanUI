@@ -18,9 +18,25 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("home");
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  // Fetch user profile picture
+  const fetchUserProfile = async (authUserId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("profile_picture_url")
+        .eq("auth_user_id", authUserId)
+        .single();
 
+      if (data) {
+        setProfilePicture(data.profile_picture_url || null);
+      }
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+    }
+  };
   // Pages that should NOT show sidebar
-  const noSidebarPages = ["/login", "/signup"];
+  const noSidebarPages = ["/login", "/signup", "/reset-password"];
   const shouldShowSidebar = !noSidebarPages.includes(pathname);
 
   // Auth check
@@ -32,9 +48,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         const {
           data: { session },
         } = await supabase.auth.getSession();
-
         if (!mounted) return;
         setUser(session?.user ?? null);
+        if (session?.user) {
+          fetchUserProfile(session.user.id);
+        }
       } catch (err) {
         console.error("Auth check error:", err);
       } finally {
@@ -51,6 +69,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       setUser(session?.user || null);
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      } else {
+        setProfilePicture(null);
+      }
     });
 
     return () => {
@@ -58,6 +81,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       subscription?.unsubscribe?.();
     };
   }, []);
+  // ADD THIS NEW useEffect - PROTECTION LOGIC
+  useEffect(() => {
+    // Wait until auth check is complete
+    if (isCheckingAuth) return;
+
+    // If user is NOT logged in and trying to access protected pages
+    if (!user && shouldShowSidebar) {
+      router.push("/login");
+    }
+  }, [isCheckingAuth, user, shouldShowSidebar, router]);
 
   // Update active tab based on pathname
   useEffect(() => {
@@ -146,6 +179,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         onTabChange={handleTabChange}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
+        profilePicture={profilePicture}
       />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -159,8 +193,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <Menu className="w-5 h-5 text-gray-600" />
             </button>
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">
-                <span className="text-white font-bold text-xs">SB</span>
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center overflow-hidden">
+                {user && profilePicture ? (
+                  <img
+                    src={profilePicture}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-white font-bold text-xs">SB</span>
+                )}
               </div>
               <span className="font-bold text-gray-800">S.B Finance</span>
             </div>

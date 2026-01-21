@@ -111,7 +111,7 @@ export default function AgentDashboard() {
   const [earningsByLevel, setEarningsByLevel] = useState<EarningsByLevel[]>([]);
   const [earningsByPlan, setEarningsByPlan] = useState<EarningsByPlan[]>([]);
   const [earningsByStatus, setEarningsByStatus] = useState<EarningsByStatus[]>(
-    []
+    [],
   );
   const [planMap, setPlanMap] = useState<Record<string, string>>({});
 
@@ -120,7 +120,7 @@ export default function AgentDashboard() {
   const [earningsTimeline, setEarningsTimeline] = useState<any[]>([]);
   const totalLockedAmount = lockedPlans.reduce(
     (sum, p) => sum + Number(p.locked_amount),
-    0
+    0,
   );
 
   useEffect(() => {
@@ -195,7 +195,7 @@ export default function AgentDashboard() {
       const { data: planRewards } = await supabase
         .from("agent_plan_rewards")
         .select(
-          "locked_amount, pairing_completed, pairing_limit, plan_id, is_released"
+          "locked_amount, pairing_completed, pairing_limit, plan_id, is_released",
         )
         .eq("agent_id", agentData.id);
 
@@ -211,7 +211,7 @@ export default function AgentDashboard() {
           from_agent:agents!commissions_from_agent_id_fkey(
             user:users(name)
           )
-        `
+        `,
         )
         .eq("agent_id", agentData.id)
         .order("created_at", { ascending: false });
@@ -222,7 +222,7 @@ export default function AgentDashboard() {
       const totalEarnings =
         commissionsData?.reduce(
           (sum, c) => sum + Number(c.commission_amount),
-          0
+          0,
         ) || 0;
 
       const pendingEarnings =
@@ -351,7 +351,7 @@ export default function AgentDashboard() {
         const dayEarnings =
           commissionsData
             ?.filter(
-              (c) => c.created_at.startsWith(date) && c.status !== "cancelled"
+              (c) => c.created_at.startsWith(date) && c.status !== "cancelled",
             )
             .reduce((sum, c) => sum + Number(c.commission_amount), 0) || 0;
         return {
@@ -404,67 +404,65 @@ export default function AgentDashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* Net Earnings */}
-            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
+            <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-lg p-4 text-white shadow-lg">
               <div className="flex items-center gap-2 mb-2">
-                <DollarSign className="w-5 h-5 text-gray-700" />
-                <p className="text-sm text-gray-700">Net Earnings</p>
+                <DollarSign className="w-5 h-5" />
+                <p className="text-sm opacity-90">Net Earnings</p>
               </div>
-              <p className="text-2xl font-bold text-gray-800">
+              <p className="text-3xl font-bold mb-1">
                 ₹{stats.totalEarnings.toLocaleString("en-IN")}
               </p>
-              <p className="text-xs text-gray-600 mt-1">
+              <p className="text-xs opacity-75">
                 {stats.activePlans} active plans
               </p>
             </div>
 
             {/* Pending */}
-            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
+            <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-lg p-4 text-white shadow-lg">
               <div className="flex items-center gap-2 mb-2">
-                <Clock className="w-5 h-5 text-gray-700" />
-                <p className="text-sm text-gray-700">Pending</p>
+                <Clock className="w-5 h-5" />
+                <p className="text-sm opacity-90">Pending</p>
               </div>
-              <p className="text-2xl font-bold text-yellow-400">
+              <p className="text-3xl font-bold mb-1">
                 ₹{stats.pendingEarnings.toLocaleString("en-IN")}
               </p>
-              <p className="text-xs text-gray-600 mt-1">Awaiting payment</p>
+              <p className="text-xs opacity-75">Awaiting payment</p>
             </div>
 
             {/* Available Balance */}
-            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
+            <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg p-4 text-white shadow-lg">
               <div className="flex items-center gap-2 mb-2">
-                <CheckCircle className="w-5 h-5 text-gray-700" />
-                <p className="text-sm text-gray-700">Available</p>
+                <CheckCircle className="w-5 h-5" />
+                <p className="text-sm opacity-90">Available</p>
               </div>
-              <p className="text-2xl font-bold text-green-400">
+              <p className="text-3xl font-bold mb-1">
                 ₹{stats.availableBalance.toLocaleString("en-IN")}
               </p>
-              <p className="text-xs text-gray-600 mt-1">Ready to withdraw</p>
+              <p className="text-xs opacity-75">Ready to withdraw</p>
             </div>
 
-            {/* ✅ Instant Cashback */}
-            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
+            {/* Instant Cashback */}
+            <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-lg p-4 text-white shadow-lg">
               <div className="flex items-center gap-2 mb-2">
-                <Award className="w-5 h-5 text-gray-700" />
-                <p className="text-sm text-gray-700">Instant Cashback</p>
+                <Award className="w-5 h-5" />
+                <p className="text-sm opacity-90">Instant Cashback</p>
               </div>
-              <p className="text-2xl font-bold text-green-300">
+              <p className="text-3xl font-bold mb-1">
                 ₹{stats.instantCashback.toLocaleString("en-IN")}
               </p>
-              <p className="text-xs text-gray-600 mt-1">Credited instantly</p>
+              <p className="text-xs opacity-75">Credited instantly</p>
             </div>
 
             {/* Network */}
-            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-4 border border-yellow-200">
+            <div className="bg-gradient-to-br from-teal-600 to-teal-700 rounded-lg p-4 text-white shadow-lg">
               <div className="flex items-center gap-2 mb-2">
-                <Users className="w-5 h-5 text-gray-700" />
-                <p className="text-sm text-gray-700">Network</p>
+                <Users className="w-5 h-5" />
+                <p className="text-sm opacity-90">Network</p>
               </div>
-              <p className="text-2xl font-bold text-gray-800">
-                {stats.totalNetwork}
-              </p>
-              <p className="text-xs text-gray-600 mt-1">
+              <p className="text-3xl font-bold mb-1">{stats.totalNetwork}</p>
+              <p className="text-xs opacity-75">
                 {stats.directReferrals} direct • {stats.activeReferrals} active
               </p>
             </div>
@@ -745,7 +743,7 @@ export default function AgentDashboard() {
                           day: "2-digit",
                           month: "short",
                           year: "numeric",
-                        }
+                        },
                       )}
                     </td>
                     <td className="py-3 text-gray-700">
@@ -762,13 +760,13 @@ export default function AgentDashboard() {
                     <td className="py-3 text-right text-gray-600">
                       ₹
                       {Number(commission.original_amount).toLocaleString(
-                        "en-IN"
+                        "en-IN",
                       )}
                     </td>
                     <td className="py-3 text-right font-semibold text-gray-900">
                       ₹
                       {Number(commission.commission_amount).toLocaleString(
-                        "en-IN"
+                        "en-IN",
                       )}
                     </td>
                     <td className="py-3">
@@ -777,8 +775,8 @@ export default function AgentDashboard() {
                           commission.status === "paid"
                             ? "bg-green-100 text-green-700"
                             : commission.status === "pending"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : "bg-red-100 text-red-700"
+                              ? "bg-yellow-100 text-yellow-700"
+                              : "bg-red-100 text-red-700"
                         }`}
                       >
                         {commission.status === "paid" && (

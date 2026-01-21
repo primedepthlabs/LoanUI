@@ -27,6 +27,9 @@ interface LoanOption {
   icon: string;
   is_active: boolean;
   sort_order: number;
+
+  login_payment_amount: string | null;
+  payment_qr_url: string | null;
 }
 
 const LoanDetailsPage: React.FC = () => {
@@ -47,6 +50,8 @@ const LoanDetailsPage: React.FC = () => {
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
+  const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
 
   // Check if user already applied
   const [hasExistingApplication, setHasExistingApplication] = useState(false);
@@ -99,12 +104,12 @@ const LoanDetailsPage: React.FC = () => {
 
     if (cleanString.includes("lakh")) {
       const value = parseFloat(
-        cleanString.replace("lakhs", "").replace("lakh", "")
+        cleanString.replace("lakhs", "").replace("lakh", ""),
       );
       return value * 100000;
     } else if (cleanString.includes("crore")) {
       const value = parseFloat(
-        cleanString.replace("crores", "").replace("crore", "")
+        cleanString.replace("crores", "").replace("crore", ""),
       );
       return value * 10000000;
     } else {
@@ -119,7 +124,7 @@ const LoanDetailsPage: React.FC = () => {
       // Fetch loan details
       const { data: loanData, error: loanError } = await supabase
         .from("loan_options")
-        .select("*")
+        .select("*, login_payment_amount, payment_qr_url")
         .eq("id", loanId)
         .single();
 
@@ -155,10 +160,10 @@ const LoanDetailsPage: React.FC = () => {
     principal: number,
     tenure: number,
     disbursementInterest: number,
-    repaymentInterest: number
+    repaymentInterest: number,
   ) => {
     const disbursementDeduction = Math.round(
-      principal * (disbursementInterest / 100)
+      principal * (disbursementInterest / 100),
     );
     const amountReceived = principal - disbursementDeduction;
 
@@ -198,7 +203,34 @@ const LoanDetailsPage: React.FC = () => {
     setShowModal(true);
     setSubmitMessage(null);
   };
+  const uploadPaymentScreenshot = async (): Promise<string | null> => {
+    if (!paymentScreenshot) return null;
 
+    try {
+      setUploadingScreenshot(true);
+
+      const fileExt = paymentScreenshot.name.split(".").pop();
+      const fileName = `${Date.now()}-${Math.random()}.${fileExt}`;
+      const filePath = `login-payments/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("payment-qr-codes")
+        .upload(filePath, paymentScreenshot);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from("payment-qr-codes")
+        .getPublicUrl(filePath);
+
+      return data.publicUrl;
+    } catch (err) {
+      console.error("Screenshot upload failed", err);
+      return null;
+    } finally {
+      setUploadingScreenshot(false);
+    }
+  };
   const handleSubmitLoanRequest = async () => {
     if (!loan || !loanConfig) return;
 
@@ -206,11 +238,21 @@ const LoanDetailsPage: React.FC = () => {
       setIsSubmitting(true);
       setSubmitMessage(null);
 
+      // Validate payment screenshot
+      if (!paymentScreenshot) {
+        setSubmitMessage({
+          type: "error",
+          text: "Please upload payment screenshot before submitting",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
       const loanDetails = calculateLoan(
         loanAmount,
         selectedTenure,
         loanConfig.disbursement_interest,
-        loanConfig.repayment_interest
+        loanConfig.repayment_interest,
       );
 
       // Get current session
@@ -237,6 +279,11 @@ const LoanDetailsPage: React.FC = () => {
         .eq("user_id", user.id)
         .in("status", ["pending", "processing", "approved", "disbursed"])
         .limit(1);
+
+      if (checkError) {
+        console.error("Error checking existing application:", checkError);
+      }
+
       if (existingData && existingData.length > 0) {
         setSubmitMessage({
           type: "error",
@@ -248,17 +295,14 @@ const LoanDetailsPage: React.FC = () => {
         setIsSubmitting(false);
         return;
       }
-      if (checkError) {
-        console.error("Error checking existing application:", checkError);
-      }
 
-      if (existingData && existingData.length > 0) {
+      // Upload payment screenshot
+      const screenshotUrl = await uploadPaymentScreenshot();
+      if (!screenshotUrl) {
         setSubmitMessage({
           type: "error",
-          text: `You already have a ${existingData[0].status} application for this loan.`,
+          text: "Failed to upload payment screenshot. Please try again.",
         });
-        setHasExistingApplication(true);
-        setExistingApplicationStatus(existingData[0].status);
         setIsSubmitting(false);
         return;
       }
@@ -284,6 +328,8 @@ const LoanDetailsPage: React.FC = () => {
             last_installment_amount: loanDetails.lastInstallment,
             total_payable: loanDetails.totalRepayable,
             total_interest: loanDetails.totalInterest,
+            payment_screenshot_url: screenshotUrl,
+            login_payment_amount: loan.login_payment_amount,
             status: "pending",
             applied_at: new Date().toISOString(),
           },
@@ -355,7 +401,7 @@ const LoanDetailsPage: React.FC = () => {
     loanAmount,
     selectedTenure,
     loanConfig.disbursement_interest,
-    loanConfig.repayment_interest
+    loanConfig.repayment_interest,
   );
 
   return (
@@ -432,13 +478,13 @@ const LoanDetailsPage: React.FC = () => {
                 loanConfig.tenure_options.length <= 4
                   ? "grid-cols-4"
                   : loanConfig.tenure_options.length <= 6
-                  ? "grid-cols-3"
-                  : "grid-cols-2"
+                    ? "grid-cols-3"
+                    : "grid-cols-2"
               }`}
             >
-              {loanConfig.tenure_options.map((option) => (
+              {loanConfig.tenure_options.map((option, index) => (
                 <button
-                  key={option.value}
+                  key={`${option.value}-${option.unit}-${index}`}
                   onClick={() => setSelectedTenure(option.value)}
                   disabled={hasExistingApplication}
                   className={`py-2 px-2 rounded-lg font-semibold text-xs transition-all ${
@@ -606,7 +652,7 @@ const LoanDetailsPage: React.FC = () => {
                     <span className="font-semibold text-gray-800 text-xs">
                       {selectedTenure}{" "}
                       {loanConfig.tenure_options.find(
-                        (t) => t.value === selectedTenure
+                        (t) => t.value === selectedTenure,
                       )?.unit || "periods"}
                     </span>
                   </div>
@@ -626,6 +672,51 @@ const LoanDetailsPage: React.FC = () => {
                     <span className="font-bold text-gray-800 text-sm">
                       ₹{totalRepayable.toLocaleString("en-IN")}
                     </span>
+                  </div>
+                </div>
+
+                {/* Login Payment */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                  <p className="text-xs text-gray-600 mb-1">Payment Required</p>
+
+                  <p className="text-lg font-bold text-gray-900 mb-2">
+                    ₹{loan.login_payment_amount}
+                  </p>
+
+                  {loan.payment_qr_url && (
+                    <div className="flex justify-center mb-3">
+                      <img
+                        src={loan.payment_qr_url}
+                        alt="Payment QR"
+                        className="w-40 h-40 object-contain border rounded"
+                      />
+                    </div>
+                  )}
+
+                  <p className="text-xs text-gray-500 text-center mb-3">
+                    Pay this amount before submitting the application
+                  </p>
+
+                  {/* Upload Payment Screenshot */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Upload Payment Screenshot *
+                    </label>
+
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) =>
+                        setPaymentScreenshot(e.target.files?.[0] || null)
+                      }
+                      className="w-full text-xs border rounded p-2 bg-white"
+                    />
+
+                    {!paymentScreenshot && (
+                      <p className="text-xs text-red-600 mt-1">
+                        Screenshot is required to submit
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -659,7 +750,7 @@ const LoanDetailsPage: React.FC = () => {
                   <button
                     onClick={handleSubmitLoanRequest}
                     className="flex-1 px-4 py-2 bg-yellow-400 text-gray-800 font-bold rounded-lg hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !paymentScreenshot}
                   >
                     {isSubmitting ? (
                       <span className="flex items-center justify-center gap-2">

@@ -63,6 +63,7 @@ interface SidebarProps {
   onTabChange: (tabId: string) => void;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  profilePicture?: string | null;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -74,6 +75,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onTabChange,
   sidebarOpen,
   setSidebarOpen,
+  profilePicture: externalProfilePicture,
 }) => {
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
   const [agentDropdownHover, setAgentDropdownHover] = useState(false);
@@ -83,6 +85,25 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [agentReferralCode, setAgentReferralCode] = useState<string>("");
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string>("");
+  // Fetch user profile data including profile picture
+  const fetchUserProfile = async (authUserId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("profile_picture_url, name")
+        .eq("auth_user_id", authUserId)
+        .single();
+
+      if (data) {
+        setProfilePicture(data.profile_picture_url || null);
+        setUserName(data.name || "User");
+      }
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+    }
+  };
   // Check agent status - exact same as dashboard
   const checkAgentStatus = async (authUserId: string) => {
     try {
@@ -113,7 +134,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           agent_plans (
             plans ( plan_name )
           )
-        `
+        `,
         )
         .eq("user_id", userData.id)
         .maybeSingle();
@@ -155,10 +176,14 @@ const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     if (user?.id) {
       checkAgentStatus(user.id);
+
+      fetchUserProfile(user.id);
     } else {
       setIsAgent(false);
       setAgentPlan("");
       setAgentReferralCode("");
+      setProfilePicture(null);
+      setUserName("");
     }
   }, [user]);
 
@@ -261,8 +286,16 @@ const Sidebar: React.FC<SidebarProps> = ({
           {/* Logo Section */}
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-500 to-yellow-700 flex items-center justify-center">
-                <span className="text-white font-bold text-sm">SB</span>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-500 to-yellow-700 flex items-center justify-center overflow-hidden">
+                {user && (externalProfilePicture || profilePicture) ? (
+                  <img
+                    src={externalProfilePicture || profilePicture || ""}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-white font-bold text-sm">SB</span>
+                )}
               </div>
               <div>
                 <h2 className="font-bold text-gray-800">S.B Finance</h2>

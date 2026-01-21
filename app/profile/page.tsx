@@ -1,10 +1,9 @@
-// app/profile/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { User, ArrowLeft, Save, Mail } from "lucide-react";
+import { User, ArrowLeft, Save, Mail, Camera, Upload, X } from "lucide-react";
 
 interface UserData {
   id: string;
@@ -19,6 +18,7 @@ interface UserData {
   can_login: boolean;
   is_agent: boolean;
   purchased_courses: string[];
+  profile_picture_url?: string | null;
 }
 
 interface FormData {
@@ -29,6 +29,7 @@ interface FormData {
 
 const ProfileSection: React.FC = () => {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [user, setUser] = useState<any>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [formData, setFormData] = useState<FormData>({
@@ -38,10 +39,14 @@ const ProfileSection: React.FC = () => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // Get current user from Supabase Auth
   useEffect(() => {
@@ -56,7 +61,6 @@ const ProfileSection: React.FC = () => {
           await fetchUserProfile(session.user.id);
         } else {
           setIsLoading(false);
-          // Redirect to login if no user found
           router.push("/login");
         }
       } catch (error) {
@@ -95,7 +99,6 @@ const ProfileSection: React.FC = () => {
       if (error) {
         console.error("Error fetching user profile:", error);
 
-        // If user doesn't exist in users table, create a new profile
         if (error.code === "PGRST116") {
           await createUserProfile(userId);
           return;
@@ -111,6 +114,7 @@ const ProfileSection: React.FC = () => {
           age: data.age || 18,
           mobile_number: data.mobile_number || "",
         });
+        setProfilePicture(data.profile_picture_url || null);
       }
     } catch (error) {
       console.error("Error in fetchUserProfile:", error);
@@ -135,6 +139,7 @@ const ProfileSection: React.FC = () => {
         can_login: true,
         is_agent: false,
         purchased_courses: [],
+        profile_picture_url: null,
       };
 
       const { data, error } = await supabase
@@ -162,6 +167,149 @@ const ProfileSection: React.FC = () => {
       ...prev,
       [field]: value,
     }));
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    if (!validTypes.includes(file.type)) {
+      setMessage({
+        type: "error",
+        text: "Please upload a valid image file (JPG, PNG, or WEBP)",
+      });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage({ type: "error", text: "Image must be less than 5MB" });
+      return;
+    }
+
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleUploadProfilePicture = async () => {
+    if (!selectedFile || !user || !userData) return;
+
+    setIsUploadingImage(true);
+    setMessage(null);
+
+    try {
+      // Delete old profile picture if exists
+      if (userData.profile_picture_url) {
+        const oldPath = userData.profile_picture_url.split("/").pop();
+        if (oldPath) {
+          await supabase.storage
+            .from("profile-pictures")
+            .remove([`${user.id}/${oldPath}`]);
+        }
+      }
+
+      // Upload new image
+      const fileExt = selectedFile.name.split(".").pop();
+      const fileName = `${user.id}/profile-${Date.now()}.${fileExt}`;
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("profile-pictures")
+        .upload(fileName, selectedFile, {
+          cacheControl: "3600",
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("profile-pictures").getPublicUrl(fileName);
+
+      // Update database
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({
+          profile_picture_url: publicUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userData.id);
+
+      if (updateError) throw updateError;
+
+      // Update local state
+      setProfilePicture(publicUrl);
+      setUserData((prev) =>
+        prev
+          ? {
+              ...prev,
+              profile_picture_url: publicUrl,
+              updated_at: new Date().toISOString(),
+            }
+          : null,
+      );
+      setSelectedFile(null);
+      setPreviewUrl(null);
+
+      setMessage({
+        type: "success",
+        text: "Profile picture updated successfully!",
+      });
+    } catch (error) {
+      console.error("Error uploading profile picture:", error);
+      setMessage({ type: "error", text: "Failed to upload profile picture" });
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const handleRemoveProfilePicture = async () => {
+    if (!user || !userData || !userData.profile_picture_url) return;
+
+    setIsUploadingImage(true);
+    setMessage(null);
+
+    try {
+      // Delete from storage
+      const oldPath = userData.profile_picture_url.split("/").pop();
+      if (oldPath) {
+        await supabase.storage
+          .from("profile-pictures")
+          .remove([`${user.id}/${oldPath}`]);
+      }
+
+      // Update database
+      const { error } = await supabase
+        .from("users")
+        .update({
+          profile_picture_url: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userData.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setProfilePicture(null);
+      setUserData((prev) =>
+        prev
+          ? {
+              ...prev,
+              profile_picture_url: null,
+              updated_at: new Date().toISOString(),
+            }
+          : null,
+      );
+
+      setMessage({ type: "success", text: "Profile picture removed" });
+    } catch (error) {
+      console.error("Error removing profile picture:", error);
+      setMessage({ type: "error", text: "Failed to remove profile picture" });
+    } finally {
+      setIsUploadingImage(false);
+    }
   };
 
   const handleUpdateProfile = async () => {
@@ -218,7 +366,7 @@ const ProfileSection: React.FC = () => {
               mobile_number: formData.mobile_number,
               updated_at: new Date().toISOString(),
             }
-          : null
+          : null,
       );
 
       setMessage({ type: "success", text: "Profile updated successfully!" });
@@ -295,6 +443,80 @@ const ProfileSection: React.FC = () => {
           )}
 
           <div className="space-y-6">
+            {/* Profile Picture Section */}
+            <div className="flex flex-col items-center gap-4 pb-6 border-b border-gray-200">
+              <div className="relative">
+                <div className="w-32 h-32 rounded-full overflow-hidden bg-gray-200 border-4 border-yellow-400">
+                  {previewUrl || profilePicture ? (
+                    <img
+                      src={previewUrl || profilePicture || ""}
+                      alt="Profile"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-yellow-400 to-yellow-500">
+                      <User className="w-16 h-16 text-white" />
+                    </div>
+                  )}
+                </div>
+                {(profilePicture || previewUrl) && (
+                  <button
+                    onClick={handleRemoveProfilePicture}
+                    disabled={isUploadingImage}
+                    className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white p-2 rounded-full shadow-lg disabled:opacity-50"
+                    title="Remove picture"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+
+              <div className="flex gap-2">
+                {!selectedFile ? (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingImage}
+                    className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 disabled:bg-gray-300 text-gray-800 font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <Camera className="w-4 h-4" />
+                    {profilePicture ? "Change Picture" : "Upload Picture"}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleUploadProfilePicture}
+                      disabled={isUploadingImage}
+                      className="flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                    >
+                      <Upload className="w-4 h-4" />
+                      {isUploadingImage ? "Uploading..." : "Save Picture"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setPreviewUrl(null);
+                      }}
+                      disabled={isUploadingImage}
+                      className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 text-center">
+                JPG, PNG, or WEBP. Max 5MB.
+              </p>
+            </div>
+
             {/* Name Field */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">

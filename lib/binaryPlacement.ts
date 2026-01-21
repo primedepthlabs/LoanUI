@@ -13,31 +13,24 @@ interface PlacementResult {
 
 export async function findNextAvailablePosition(
   sponsorId: string,
-  planId: string
+  pairingLimit: number,
 ): Promise<PlacementResult> {
   try {
-    // Get plan settings (pairing limit, max depth)
-    const { data: planSettings } = await supabase
-      .from("plan_chain_settings")
-      .select("pairing_limit, max_depth")
-      .eq("plan_id", planId)
-      .maybeSingle();
+    // pairingLimit is now passed as parameter
+    const maxDepth = 50; // Default max depth
 
-    const pairingLimit = planSettings?.pairing_limit || 2; // Default binary
-    const maxDepth = planSettings?.max_depth || 50;
-
-    // Check if sponsor exists in this plan's tree
+    // Check if sponsor exists in this pairing_limit tree
     const { data: sponsorPosition } = await supabase
       .from("plan_binary_positions")
       .select("*")
       .eq("agent_id", sponsorId)
-      .eq("plan_id", planId)
+      .eq("pairing_limit", pairingLimit)
       .maybeSingle();
 
     if (!sponsorPosition) {
       return {
         success: false,
-        error: "Sponsor is not positioned in this plan's tree",
+        error: "Sponsor is not positioned in this pairing tree",
       };
     }
 
@@ -68,9 +61,9 @@ export async function findNextAvailablePosition(
     // All slots filled, find next available in downline (breadth-first)
     const nextAvailable = await findNextAvailableInDownline(
       sponsorId,
-      planId,
+      pairingLimit,
       maxDepth,
-      pairingLimit
+      pairingLimit,
     );
     return nextAvailable;
   } catch (error) {
@@ -87,16 +80,16 @@ export async function findNextAvailablePosition(
  */
 async function findNextAvailableInDownline(
   rootAgentId: string,
-  planId: string,
+  pairingLimit: number,
   maxDepth: number,
-  pairingLimit: number
+  pairingLimitValue: number,
 ): Promise<PlacementResult> {
   try {
-    // Get all positions in this plan's tree
+    // Get all positions in this pairing_limit tree
     const { data: allPositions } = await supabase
       .from("plan_binary_positions")
       .select("*")
-      .eq("plan_id", planId)
+      .eq("pairing_limit", pairingLimit)
       .order("level", { ascending: true });
 
     if (!allPositions || allPositions.length === 0) {
@@ -113,7 +106,7 @@ async function findNextAvailableInDownline(
       visited.add(currentAgentId);
 
       const currentPosition = allPositions.find(
-        (p) => p.agent_id === currentAgentId
+        (p) => p.agent_id === currentAgentId,
       );
       if (!currentPosition) continue;
 
@@ -121,7 +114,8 @@ async function findNextAvailableInDownline(
       if (currentPosition.level >= maxDepth) continue;
 
       // Check all child slots (1 to pairingLimit)
-      for (let slot = 1; slot <= pairingLimit; slot++) {
+      // Check all child slots (1 to pairingLimit)
+      for (let slot = 1; slot <= pairingLimitValue; slot++) {
         const childField = `child_${slot}_id`;
 
         if (!currentPosition[childField]) {
@@ -158,15 +152,28 @@ async function findNextAvailableInDownline(
 export async function placeAgentInBinaryTree(
   agentId: string,
   planId: string,
-  sponsorId: string | null
+  sponsorId: string | null,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // FIX 1: Check if agent already exists in this plan's tree
+    // ✅ Get the plan's pairing_limit
+    const { data: planSettings } = await supabase
+      .from("plan_chain_settings")
+      .select("pairing_limit, max_depth")
+      .eq("plan_id", planId)
+      .single();
+
+    if (!planSettings) {
+      return { success: false, error: "Plan settings not found" };
+    }
+
+    const pairingLimit = planSettings.pairing_limit;
+
+    // Check if agent already exists in this pairing_limit tree
     const { data: existingPosition } = await supabase
       .from("plan_binary_positions")
       .select("*")
       .eq("agent_id", agentId)
-      .eq("plan_id", planId)
+      .eq("pairing_limit", pairingLimit)
       .maybeSingle();
 
     if (existingPosition) {
@@ -189,40 +196,27 @@ export async function placeAgentInBinaryTree(
     }
 
     // Handle root placement (no sponsor)
+    // Handle root placement (no sponsor)
     if (!sponsorId) {
-      // FIX 1: Only allow ONE root per plan
+      // ✅ Only allow ONE root per pairing_limit
       const { data: existingRoot } = await supabase
         .from("plan_binary_positions")
         .select("id")
-        .eq("plan_id", planId)
+        .eq("pairing_limit", pairingLimit)
         .eq("position", "root")
         .maybeSingle();
 
       if (existingRoot) {
         return {
           success: false,
-          error: "Root already exists for this plan",
-        };
-      }
-
-      // FIX 1: Ensure this is the only plan owner trying to become root
-      const { data: allPlanOwners } = await supabase
-        .from("agent_plans")
-        .select("agent_id")
-        .eq("plan_id", planId);
-
-      // If there are other plan owners, they should have sponsors
-      if (allPlanOwners && allPlanOwners.length > 1) {
-        return {
-          success: false,
-          error: "Cannot create root - other agents already own this plan",
+          error: "Root already exists for this pairing limit tree",
         };
       }
 
       // Create root position
       const { error } = await supabase.from("plan_binary_positions").insert({
         agent_id: agentId,
-        plan_id: planId,
+        pairing_limit: pairingLimit,
         parent_id: null,
         position: "root",
         level: 1,
@@ -231,40 +225,26 @@ export async function placeAgentInBinaryTree(
       if (error) throw error;
       return { success: true };
     }
-
-    // FIX 1: Verify sponsor owns this plan (source of truth check)
-    const { data: sponsorPlan } = await supabase
-      .from("agent_plans")
-      .select("id")
-      .eq("agent_id", sponsorId)
-      .eq("plan_id", planId)
-      .maybeSingle();
-
-    if (!sponsorPlan) {
-      return {
-        success: false,
-        error: "Sponsor does not own this plan",
-      };
-    }
-
-    // FIX 1: Check if sponsor exists in THIS plan's tree
-    // No auto-insertion - if sponsor not in tree, reject placement
+    // ✅ Check if sponsor exists in THIS pairing_limit tree
     const { data: sponsorPosition } = await supabase
       .from("plan_binary_positions")
       .select("*")
       .eq("agent_id", sponsorId)
-      .eq("plan_id", planId)
+      .eq("pairing_limit", pairingLimit)
       .maybeSingle();
 
     if (!sponsorPosition) {
       return {
         success: false,
-        error: "Sponsor is not positioned in this plan's tree",
+        error: "Sponsor is not positioned in this pairing tree",
       };
     }
 
     // Sponsor exists in tree, find next available position
-    const placementResult = await findNextAvailablePosition(sponsorId, planId);
+    const placementResult = await findNextAvailablePosition(
+      sponsorId,
+      pairingLimit,
+    );
 
     if (!placementResult.success || !placementResult.position) {
       return {
@@ -280,7 +260,7 @@ export async function placeAgentInBinaryTree(
       .from("plan_binary_positions")
       .insert({
         agent_id: agentId,
-        plan_id: planId,
+        pairing_limit: pairingLimit,
         parent_id: parent_id,
         position: position,
         level: level,
@@ -294,7 +274,7 @@ export async function placeAgentInBinaryTree(
       .from("plan_binary_positions")
       .update({ [updateField]: agentId })
       .eq("agent_id", parent_id!)
-      .eq("plan_id", planId);
+      .eq("pairing_limit", pairingLimit);
 
     if (updateError) throw updateError;
     //
@@ -358,15 +338,15 @@ export async function placeAgentInBinaryTree(
 /**
  * Get the complete tree for a specific plan starting from an agent
  */
-export async function getBinaryTreeForPlan(
+export async function getBinaryTreeForPairingLimit(
   agentId: string,
-  planId: string
+  pairingLimit: number,
 ): Promise<any> {
   try {
     const { data: allPositions, error } = await supabase
       .from("plan_binary_positions")
       .select("*")
-      .eq("plan_id", planId);
+      .eq("pairing_limit", pairingLimit);
 
     // Explicit null/error check
     if (error) {

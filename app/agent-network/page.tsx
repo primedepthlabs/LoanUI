@@ -37,19 +37,26 @@ export default function AgentNetworkPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentAgentId, setCurrentAgentId] = useState<string | null>(null);
   const [userPlans, setUserPlans] = useState<any[]>([]);
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [planNetworkTrees, setPlanNetworkTrees] = useState<
-    Map<string, AgentNode | null>
+  const [pairingLimitGroups, setPairingLimitGroups] = useState<
+    Map<number, any[]>
+  >(new Map());
+  const [selectedPairingLimit, setSelectedPairingLimit] = useState<
+    number | null
+  >(null);
+  const [pairingNetworkTrees, setPairingNetworkTrees] = useState<
+    Map<number, AgentNode | null>
   >(new Map());
   const router = useRouter();
-  const [planStats, setPlanStats] = useState<Map<string, NetworkStats>>(
-    new Map()
+  const [pairingStats, setPairingStats] = useState<Map<number, NetworkStats>>(
+    new Map(),
   );
-  const [planSettings, setPlanSettings] = useState<Map<string, any>>(new Map());
+  const [pairingSettings, setPairingSettings] = useState<Map<number, any>>(
+    new Map(),
+  );
   const [loading, setLoading] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState<AgentNode | null>(null);
   const [agentCommissions, setAgentCommissions] = useState<Map<string, number>>(
-    new Map()
+    new Map(),
   );
 
   // Fetch current user and their agent ID
@@ -81,6 +88,7 @@ export default function AgentNetworkPage() {
         if (agentData) {
           setCurrentAgentId(agentData.id);
 
+          // ✅ Fetch agent's plans (WITHOUT nested settings)
           const { data: plansData } = await supabase
             .from("agent_plans")
             .select("plan_id, plan:plans(id, plan_name, amount)")
@@ -88,8 +96,42 @@ export default function AgentNetworkPage() {
             .eq("is_active", true);
 
           if (plansData && plansData.length > 0) {
-            setUserPlans(plansData);
-            setSelectedPlanId(plansData[0].plan_id);
+            // ✅ Fetch settings separately
+            const planIds = plansData.map((p: any) => p.plan_id);
+            const { data: settingsData } = await supabase
+              .from("plan_chain_settings")
+              .select("plan_id, pairing_limit, max_depth")
+              .in("plan_id", planIds);
+
+            // ✅ Create settings map
+            const settingsMap = new Map();
+            settingsData?.forEach((s) => {
+              settingsMap.set(s.plan_id, s);
+            });
+
+            // ✅ Attach settings to plans
+            const plansWithSettings = plansData.map((p: any) => ({
+              ...p,
+              settings: settingsMap.get(p.plan_id),
+            }));
+
+            setUserPlans(plansWithSettings);
+
+            // ✅ Group plans by pairing_limit
+            const groups = new Map<number, any[]>();
+            plansWithSettings.forEach((p: any) => {
+              const pairingLimit = p.settings?.pairing_limit || 2;
+              if (!groups.has(pairingLimit)) {
+                groups.set(pairingLimit, []);
+              }
+              groups.get(pairingLimit)!.push(p);
+            });
+
+            setPairingLimitGroups(groups);
+
+            // ✅ Set first pairing limit as selected
+            const firstPairingLimit = Array.from(groups.keys())[0];
+            setSelectedPairingLimit(firstPairingLimit);
           }
         }
       }
@@ -99,34 +141,30 @@ export default function AgentNetworkPage() {
     fetchCurrentUser();
   }, []);
 
-  // Fetch network data when plan changes
+  // Fetch network data when pairing limit changes
   useEffect(() => {
-    if (currentAgentId && selectedPlanId) {
-      fetchPlanNetworkData(selectedPlanId);
+    if (currentAgentId && selectedPairingLimit !== null) {
+      fetchPairingNetworkData(selectedPairingLimit);
     }
-  }, [currentAgentId, selectedPlanId]);
-
-  // Fetch plan-specific network data
-  async function fetchPlanNetworkData(planId: string) {
+  }, [currentAgentId, selectedPairingLimit, userPlans]);
+  // Fetch pairing-limit-specific network data
+  async function fetchPairingNetworkData(pairingLimit: number) {
     if (!currentAgentId) return;
 
     setLoading(true);
 
     try {
-      // Fetch plan settings
-      const { data: settings, error: settingsError } = await supabase
-        .from("plan_chain_settings")
-        .select("*")
-        .eq("plan_id", planId)
-        .single();
+      console.log("🔍 Fetching network for pairing_limit:", pairingLimit);
 
-      console.log("⚙️ Settings:", { settings, settingsError });
+      // ✅ Store settings for this pairing limit
+      setPairingSettings((prev) =>
+        new Map(prev).set(pairingLimit, {
+          pairing_limit: pairingLimit,
+          max_depth: 50,
+        }),
+      );
 
-      if (settings) {
-        setPlanSettings((prev) => new Map(prev).set(planId, settings));
-      }
-
-      // Fetch positions with agent details - FIXED with proper foreign key constraints
+      // ✅ Fetch positions by pairing_limit instead of plan_id
       const { data: positions, error: positionsError } = await supabase
         .from("plan_binary_positions")
         .select(
@@ -144,35 +182,35 @@ export default function AgentNetworkPage() {
                 mobile_number
               )
             )
-          `
+          `,
         )
-        .eq("plan_id", planId);
+        .eq("pairing_limit", pairingLimit);
 
       console.log("📍 Positions:", { positions, positionsError });
 
       const safePositions = positions || [];
 
       if (safePositions.length === 0) {
-        console.warn("⚠️ No positions found");
-        setPlanNetworkTrees((prev) => new Map(prev).set(planId, null));
+        console.warn("⚠️ No positions found for pairing_limit", pairingLimit);
+        setPairingNetworkTrees((prev) => new Map(prev).set(pairingLimit, null));
         setLoading(false);
         return;
       }
 
       const currentAgentPosition = safePositions.find(
-        (p) => p.agent_id === currentAgentId
+        (p) => p.agent_id === currentAgentId,
       );
 
       if (!currentAgentPosition) {
-        console.warn("⚠️ Current agent has no position in this plan");
-        setPlanNetworkTrees((prev) => new Map(prev).set(planId, null));
+        console.warn("⚠️ Current agent has no position in this pairing tree");
+        setPairingNetworkTrees((prev) => new Map(prev).set(pairingLimit, null));
         setLoading(false);
         return;
       }
 
       console.log("✅ Current agent position found:", currentAgentPosition);
 
-      // Fetch agent plans
+      // Fetch agent plans for all agents in tree
       const agentIds = safePositions.map((p) => p.agent_id);
 
       const { data: agentPlansData } = await supabase
@@ -189,12 +227,18 @@ export default function AgentNetworkPage() {
         agentPlansMap.get(ap.agent_id)!.push(ap);
       });
 
-      // Fetch commissions for this plan - FIXED with proper foreign key
+      // ✅ Fetch commissions across ALL plans with this pairing limit
+      const plansWithPairingLimit = userPlans.filter((p: any) => {
+        const planPairingLimit = p.settings?.pairing_limit || 2;
+        return planPairingLimit === pairingLimit;
+      });
+      const planIds = plansWithPairingLimit.map((p: any) => p.plan_id);
+
       const { data: commissionsData, error: commissionsError } = await supabase
         .from("commissions")
         .select("from_agent_id, commission_amount, status")
         .eq("agent_id", currentAgentId)
-        .eq("plan_id", planId)
+        .in("plan_id", planIds)
         .in("status", ["paid", "pending"]);
 
       console.log("💰 Commissions:", { commissionsData, commissionsError });
@@ -209,10 +253,9 @@ export default function AgentNetworkPage() {
       // Build tree
       function buildTree(
         agentId: string,
-        currentLevel: number = 1
+        currentLevel: number = 1,
       ): AgentNode | null {
-        const pairingLimit = settings?.pairing_limit || 2;
-        const maxDepth = settings?.max_depth || 50;
+        const maxDepth = 50;
 
         if (currentLevel > maxDepth) {
           return null;
@@ -235,7 +278,7 @@ export default function AgentNetworkPage() {
         return {
           id: position.id,
           agent_id: position.agent_id,
-          plan_id: position.plan_id,
+          plan_id: position.plan_id || "", // May not have plan_id anymore
           parent_id: position.parent_id,
           position: position.position,
           level: currentLevel,
@@ -255,14 +298,14 @@ export default function AgentNetworkPage() {
       const tree = buildTree(currentAgentId, 1);
       console.log("🌳 Tree built:", tree);
 
-      setPlanNetworkTrees((prev) => new Map(prev).set(planId, tree));
+      setPairingNetworkTrees((prev) => new Map(prev).set(pairingLimit, tree));
 
       const stats = calculateNetworkStats(tree);
       console.log("📊 Stats:", stats);
-      setPlanStats((prev) => new Map(prev).set(planId, stats));
+      setPairingStats((prev) => new Map(prev).set(pairingLimit, stats));
     } catch (error) {
       console.error("❌ Error fetching network:", error);
-      setPlanNetworkTrees((prev) => new Map(prev).set(planId, null));
+      setPairingNetworkTrees((prev) => new Map(prev).set(pairingLimit, null));
     }
 
     setLoading(false);
@@ -312,8 +355,8 @@ export default function AgentNetworkPage() {
               isCurrentUser
                 ? "bg-gradient-to-br from-blue-500 to-blue-700 border-blue-400"
                 : agent.agent?.is_active
-                ? "bg-gradient-to-br from-yellow-400 to-yellow-500 border-yellow-300"
-                : "bg-gray-300 border-gray-200"
+                  ? "bg-gradient-to-br from-yellow-400 to-yellow-500 border-yellow-300"
+                  : "bg-gray-300 border-gray-200"
             }
             hover:scale-105 shadow-md`}
         >
@@ -366,7 +409,7 @@ export default function AgentNetworkPage() {
 
             <div className="flex justify-center gap-8">
               {agent.children.map((child) =>
-                renderTreeNode(child, child.agent_id === currentAgentId)
+                renderTreeNode(child, child.agent_id === currentAgentId),
               )}
             </div>
           </div>
@@ -422,8 +465,8 @@ export default function AgentNetworkPage() {
     );
   }
 
-  const currentTree = planNetworkTrees.get(selectedPlanId || "");
-  const currentStats = planStats.get(selectedPlanId || "") || {
+  const currentTree = pairingNetworkTrees.get(selectedPairingLimit || 0);
+  const currentStats = pairingStats.get(selectedPairingLimit || 0) || {
     totalDownline: 0,
     activeAgents: 0,
     directReferrals: 0,
@@ -435,7 +478,6 @@ export default function AgentNetworkPage() {
       <div className="max-w-9xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="mb-6 flex items-center gap-3">
-         
           <div>
             <h1 className="text-2xl font-bold text-gray-800 mb-1">
               My Network
@@ -446,22 +488,25 @@ export default function AgentNetworkPage() {
           </div>
         </div>
 
-        {/* Plan Tabs */}
-        {userPlans.length > 1 && (
+        {/* Pairing Limit Tabs */}
+        {pairingLimitGroups.size > 1 && (
           <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-            {userPlans.map((up: any) => (
-              <button
-                key={up.plan_id}
-                onClick={() => setSelectedPlanId(up.plan_id)}
-                className={`px-5 py-2.5 text-sm font-semibold whitespace-nowrap rounded-lg transition-all ${
-                  selectedPlanId === up.plan_id
-                    ? "bg-yellow-400 text-gray-800 shadow-md"
-                    : "bg-white text-gray-700 hover:bg-gray-50 shadow-sm"
-                }`}
-              >
-                {up.plan?.plan_name || "Unknown"}
-              </button>
-            ))}
+            {Array.from(pairingLimitGroups.entries()).map(
+              ([pairingLimit, plans]) => (
+                <button
+                  key={pairingLimit}
+                  onClick={() => setSelectedPairingLimit(pairingLimit)}
+                  className={`px-5 py-2.5 text-sm font-semibold whitespace-nowrap rounded-lg transition-all ${
+                    selectedPairingLimit === pairingLimit
+                      ? "bg-yellow-400 text-gray-800 shadow-md"
+                      : "bg-white text-gray-700 hover:bg-gray-50 shadow-sm"
+                  }`}
+                >
+                  {pairingLimit}-Pair System ({plans.length} plan
+                  {plans.length > 1 ? "s" : ""})
+                </button>
+              ),
+            )}
           </div>
         )}
 
@@ -528,7 +573,7 @@ export default function AgentNetworkPage() {
                 </svg>
               </div>
               <p className="text-gray-600">
-                No network data available for this plan yet
+                No network data available for this pairing system yet
               </p>
               <p className="text-sm text-gray-500 mt-2">
                 Share your referral code to start building your network

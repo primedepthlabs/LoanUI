@@ -17,7 +17,7 @@ export async function calculateCommissions(
   paymentId: string,
   purchaserAgentId: string,
   planId: string,
-  planAmount: number
+  planAmount: number,
 ): Promise<CommissionResult> {
   try {
     // Get purchaser's sponsor chain
@@ -48,7 +48,7 @@ export async function calculateCommissions(
     const sponsorChain = await buildSponsorChain(
       purchaserAgent.sponsor_id,
       planId,
-      maxDepth
+      maxDepth,
     );
 
     if (sponsorChain.length === 0) {
@@ -59,7 +59,20 @@ export async function calculateCommissions(
       };
     }
 
-    // Calculate commissions
+    // ✅ Fetch SINGLE global commission percentage (level = 0)
+    const { data: commissionRule, error: rulesError } = await supabase
+      .from("commission_rules")
+      .select("percentage")
+      .eq("level", 0) // Level 0 = global percentage for all levels
+      .single();
+
+    if (rulesError) {
+      console.warn("No commission rule found, using default 10%");
+    }
+
+    const commissionPercentage = commissionRule?.percentage || 10;
+
+    // ✅ Calculate commissions using SINGLE percentage for ALL levels
     const commissions: any[] = [];
     let remainingAmount = planAmount;
 
@@ -67,15 +80,8 @@ export async function calculateCommissions(
       const level = i + 1;
       const sponsorId = sponsorChain[i];
 
-      let commissionAmount: number;
-
-      if (level === 1) {
-        // Level 1: 10% of original amount
-        commissionAmount = planAmount * 0.1;
-      } else {
-        // Level 2+: 20% of remaining amount
-        commissionAmount = remainingAmount * 0.2;
-      }
+      // Same percentage for all levels, calculated from remaining amount
+      let commissionAmount = remainingAmount * (commissionPercentage / 100);
 
       // Round to 2 decimal places
       commissionAmount = Math.round(commissionAmount * 100) / 100;
@@ -95,7 +101,6 @@ export async function calculateCommissions(
         paid_at: new Date().toISOString(),
       });
     }
-
     // Insert all commissions
     const { error: insertError } = await supabase
       .from("commissions")
@@ -126,7 +131,7 @@ export async function calculateCommissions(
 async function buildSponsorChain(
   startSponsorId: string,
   planId: string,
-  maxDepth: number
+  maxDepth: number,
 ): Promise<string[]> {
   const chain: string[] = [];
   let currentSponsorId: string | null = startSponsorId;
@@ -176,7 +181,7 @@ export async function updateAgentCommissionTotals(agentId: string) {
 
     const totalEarnings = commissions.reduce(
       (sum, c) => sum + Number(c.commission_amount),
-      0
+      0,
     );
 
     const paidEarnings = commissions
