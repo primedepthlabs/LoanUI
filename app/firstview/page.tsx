@@ -4,11 +4,8 @@ import React, { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { ChevronRight, Lock, CheckCircle } from "lucide-react";
-import {
-  checkLoanUnlockStatus,
-  LoanUnlockStatus,
-} from "@/lib/loanUnlockingService";
+import { ChevronRight } from "lucide-react";
+
 import Image from "next/image";
 
 interface LoanOption {
@@ -70,13 +67,10 @@ function DashboardContent() {
   const [userLoans, setUserLoans] = useState<LoanWithProgress[]>([]);
   const [isLoadingUserLoans, setIsLoadingUserLoans] = useState(true);
   const [selectedUserLoans, setSelectedUserLoans] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
   const [user, setUser] = useState<UserData | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [loanUnlockStatus, setLoanUnlockStatus] = useState<
-    Map<string, LoanUnlockStatus>
-  >(new Map());
 
   const searchParams = useSearchParams();
   const selectedLanguage = searchParams?.get("language") || "english";
@@ -153,7 +147,7 @@ function DashboardContent() {
           emis?.filter((emi) => emi.loan_application_id === loan.id) || [];
         const totalPaid = loanEmis.reduce(
           (sum, emi) => sum + emi.paid_amount,
-          0
+          0,
         );
         const totalRemaining = loan.total_payable - totalPaid;
         const progressPercentage = (totalPaid / loan.total_payable) * 100;
@@ -161,7 +155,7 @@ function DashboardContent() {
           (emi) =>
             emi.status === "pending" ||
             emi.status === "overdue" ||
-            emi.status === "partial"
+            emi.status === "partial",
         );
         const nextDueDate = nextUnpaidEmi?.due_date || null;
 
@@ -183,22 +177,6 @@ function DashboardContent() {
     }
   }, []);
 
-  const fetchLoanUnlockStatus = useCallback(
-    async (userId: string, loans: LoanOption[]) => {
-      const statusMap = new Map<string, LoanUnlockStatus>();
-      for (const loan of loans) {
-        const status = await checkLoanUnlockStatus(
-          userId,
-          loan.id,
-          loan.sort_order
-        );
-        statusMap.set(loan.id, status);
-      }
-      setLoanUnlockStatus(statusMap);
-    },
-    []
-  );
-
   const handleKnowMore = useCallback(
     (loanId: string) => {
       if (!user) {
@@ -206,22 +184,16 @@ function DashboardContent() {
         return;
       }
 
-      const unlockStatus = loanUnlockStatus.get(loanId);
-      if (unlockStatus && !unlockStatus.isUnlocked) {
-        alert(unlockStatus.reason);
-        return;
-      }
-
       router.push(`/loan-details/${loanId}`);
     },
-    [user, loanUnlockStatus, router]
+    [user, router],
   );
 
   const handleViewLoanDetails = useCallback(
     (loanId: string) => {
       router.push(`/my-loan/${loanId}`);
     },
-    [router]
+    [router],
   );
 
   const toggleLoanSelection = useCallback((loanId: string) => {
@@ -299,12 +271,6 @@ function DashboardContent() {
   }, [fetchLoanOptions, fetchUserLoans]);
 
   useEffect(() => {
-    if (user && loanOptions.length > 0) {
-      fetchLoanUnlockStatus(user.id, loanOptions);
-    }
-  }, [user, loanOptions, fetchLoanUnlockStatus]);
-
-  useEffect(() => {
     if (!user) return;
 
     const channel = supabase
@@ -319,17 +285,14 @@ function DashboardContent() {
         },
         () => {
           fetchUserLoans(user.id);
-          if (loanOptions.length > 0) {
-            fetchLoanUnlockStatus(user.id, loanOptions);
-          }
-        }
+        },
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, loanOptions, fetchUserLoans, fetchLoanUnlockStatus]);
+  }, [user, loanOptions, fetchUserLoans]);
 
   useEffect(() => {
     if (!user || userLoans.length === 0) return;
@@ -351,7 +314,7 @@ function DashboardContent() {
           if (loanIds.includes(affectedLoanId)) {
             fetchUserLoans(user.id);
           }
-        }
+        },
       )
       .subscribe();
 
@@ -372,7 +335,7 @@ function DashboardContent() {
         },
         () => {
           fetchLoanOptions();
-        }
+        },
       )
       .subscribe();
 
@@ -518,7 +481,7 @@ function DashboardContent() {
                                 style={{
                                   width: `${Math.min(
                                     loan.progressPercentage,
-                                    100
+                                    100,
                                   )}%`,
                                 }}
                               ></div>
@@ -573,74 +536,32 @@ function DashboardContent() {
             </div>
           ) : (
             loanOptions.map((loan) => {
-              const unlockStatus = loanUnlockStatus.get(loan.id);
-              const isLocked = unlockStatus ? !unlockStatus.isUnlocked : false;
-
               return (
                 <div
                   key={loan.id}
-                  className={`bg-white rounded-lg mb-4 p-4 shadow-sm transition-all ${
-                    isLocked
-                      ? "opacity-60 cursor-not-allowed"
-                      : "hover:shadow-md cursor-pointer"
-                  }`}
+                  onClick={() => handleKnowMore(loan.id)}
+                  className="bg-white rounded-lg mb-4 p-4 shadow-sm hover:shadow-md cursor-pointer transition-all"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 flex-1">
-                      <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          isLocked ? "bg-gray-100" : "bg-yellow-100"
-                        }`}
-                      >
-                        {isLocked ? (
-                          <Lock className="w-5 h-5 text-gray-400" />
-                        ) : (
-                          <span className="text-lg">{loan.icon}</span>
-                        )}
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center bg-yellow-100">
+                        <span className="text-lg">{loan.icon}</span>
                       </div>
 
                       <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3
-                            className={`text-lg font-bold ${
-                              isLocked ? "text-gray-400" : "text-gray-800"
-                            }`}
-                          >
-                            {loan.amount}
-                          </h3>
-                          {!isLocked && loan.sort_order > 1 && (
-                            <CheckCircle className="w-4 h-4 text-green-500" />
-                          )}
-                        </div>
-                        <p
-                          className={`text-sm ${
-                            isLocked ? "text-gray-400" : "text-gray-600"
-                          }`}
-                        >
+                        <h3 className="text-lg font-bold text-gray-800">
+                          {loan.amount}
+                        </h3>
+                        <p className="text-sm text-gray-600">
                           {selectedLanguage === "hindi"
                             ? loan.type_hindi
                             : loan.type}
                         </p>
-
-                        {isLocked && unlockStatus && (
-                          <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                            <Lock className="w-3 h-3" />
-                            {unlockStatus.reason}
-                          </p>
-                        )}
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleKnowMore(loan.id)}
-                      disabled={isLocked}
-                      className={`text-sm font-medium flex items-center gap-1 transition-colors ${
-                        isLocked
-                          ? "text-gray-400 cursor-not-allowed"
-                          : "text-yellow-600 hover:text-yellow-700 cursor-pointer"
-                      }`}
-                    >
-                      {isLocked ? "Locked" : content.knowMore}
+                    <button className="text-sm font-medium flex items-center gap-1 text-yellow-600 hover:text-yellow-700 cursor-pointer transition-colors">
+                      {content.knowMore}
                       <svg
                         className="w-4 h-4"
                         fill="none"
@@ -656,15 +577,6 @@ function DashboardContent() {
                       </svg>
                     </button>
                   </div>
-
-                  {!isLocked && loan.sort_order > 1 && unlockStatus && (
-                    <div className="mt-3 pt-3 border-t border-gray-100">
-                      <p className="text-xs text-green-600 flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" />
-                        {unlockStatus.reason}
-                      </p>
-                    </div>
-                  )}
                 </div>
               );
             })

@@ -15,8 +15,8 @@ interface Course {
   created_at: string;
   updated_at: string;
   isPurchased: boolean;
+  pairing_limit: number; // ✅ ADD THIS
 }
-
 const AgentCoursesPage: React.FC = () => {
   const router = useRouter();
   const colors = [
@@ -31,7 +31,9 @@ const AgentCoursesPage: React.FC = () => {
   const [error, setError] = useState<string>("");
   const [realtimeNotification, setRealtimeNotification] = useState<string>("");
   const [isExistingAgent, setIsExistingAgent] = useState(false);
-  const [sponsorPlans, setSponsorPlans] = useState<string[]>([]);
+  const [sponsorPairingLimits, setSponsorPairingLimits] = useState<number[]>(
+    [],
+  ); // ✅ CHANGED
 
   // Track current user's agent info and purchased plans
   const [currentAgentId, setCurrentAgentId] = useState<string | null>(null);
@@ -70,7 +72,7 @@ const AgentCoursesPage: React.FC = () => {
         { event: "*", schema: "public", table: "plans" },
         (payload) => {
           handleRealtimeUpdate(payload);
-        }
+        },
       )
       .subscribe((status) => {
         console.log("Real-time subscription status:", status);
@@ -92,6 +94,7 @@ const AgentCoursesPage: React.FC = () => {
       created_at: data.created_at || new Date().toISOString(),
       updated_at: data.updated_at || new Date().toISOString(),
       isPurchased: false,
+      pairing_limit: Number(data.pairing_limit) || 0, // ✅ ADD THIS
     };
   };
 
@@ -115,7 +118,7 @@ const AgentCoursesPage: React.FC = () => {
                       ...transformCourseData(payload.new),
                       isPurchased: course.isPurchased,
                     }
-                  : course
+                  : course,
               );
             } else {
               setRealtimeNotification("New plan available");
@@ -125,14 +128,14 @@ const AgentCoursesPage: React.FC = () => {
           });
         } else {
           setCourses((prev) =>
-            prev.filter((course) => course.id !== payload.new.id)
+            prev.filter((course) => course.id !== payload.new.id),
           );
           setRealtimeNotification("Plan removed");
           setTimeout(() => setRealtimeNotification(""), 3000);
         }
       } else if (payload.eventType === "DELETE") {
         setCourses((prev) =>
-          prev.filter((course) => course.id !== payload.old.id)
+          prev.filter((course) => course.id !== payload.old.id),
         );
         setRealtimeNotification("Plan removed");
         setTimeout(() => setRealtimeNotification(""), 3000);
@@ -145,13 +148,19 @@ const AgentCoursesPage: React.FC = () => {
   const fetchCourses = async () => {
     try {
       setError("");
-
+      // ✅ JOIN with plan_chain_settings to get pairing_limit
       const { data, error: fetchError } = await supabase
         .from("plans")
-        .select("*")
+        .select(
+          `
+    *,
+    plan_chain_settings (
+      pairing_limit
+    )
+  `,
+        )
         .eq("is_active", true)
         .order("amount", { ascending: true });
-
       if (fetchError) {
         console.error("Supabase fetch error:", fetchError);
         throw fetchError;
@@ -166,14 +175,17 @@ const AgentCoursesPage: React.FC = () => {
       const transformedCourses: Course[] = data
         .map((course) => {
           try {
-            return transformCourseData(course);
+            const courseWithPairingLimit = {
+              ...course,
+              pairing_limit: course.plan_chain_settings?.pairing_limit || 0, // ✅ REMOVED [0]
+            };
+            return transformCourseData(courseWithPairingLimit);
           } catch (err) {
             console.error("Error transforming plan:", err, course);
             return null;
           }
         })
         .filter((course): course is Course => course !== null);
-
       setCourses(transformedCourses);
     } catch (error) {
       console.error("Error fetching courses:", error);
@@ -220,17 +232,46 @@ const AgentCoursesPage: React.FC = () => {
             setPurchasedPlanIds(planIds);
 
             // 🔥 Fetch sponsor's plans if agent has a sponsor
+            // ✅ Fetch sponsor's pairing_limits (not plan IDs)
             if (agentData.sponsor_id) {
               const { data: sponsorPlansData } = await supabase
                 .from("agent_plans")
-                .select("plan_id")
+                .select(
+                  `
+      plan_id,
+      plans!inner (
+        plan_chain_settings (
+          pairing_limit
+        )
+      )
+    `,
+                )
                 .eq("agent_id", agentData.sponsor_id)
                 .eq("is_active", true);
 
-              const sponsorPlanIds =
-                sponsorPlansData?.map((p) => p.plan_id) || [];
-              setSponsorPlans(sponsorPlanIds);
+              // ✅ ADD THESE DEBUG LOGS
+              console.log("🔍 Sponsor ID:", agentData.sponsor_id);
+              console.log("🔍 sponsorPlansData RAW:", sponsorPlansData);
+              console.log(
+                "🔍 sponsorPlansData JSON:",
+                JSON.stringify(sponsorPlansData, null, 2),
+              );
+              // Extract unique pairing_limits
+              const pairingLimits = [
+                ...new Set(
+                  sponsorPlansData
+                    ?.map(
+                      (p: any) => p.plans?.plan_chain_settings?.pairing_limit,
+                    ) // ✅ REMOVED [0]
+                    .filter((limit: number | undefined) => limit !== undefined),
+                ),
+              ];
 
+              setSponsorPairingLimits(pairingLimits);
+              // ✅ ADD THIS DEBUG LOG
+              console.log("🔍 Sponsor pairing limits:", pairingLimits);
+              console.log("🔍 All courses:", courses);
+              console.log("🔍 Purchased plan IDs:", planIds);
               // Get sponsor name
               const { data: sponsorAgent } = await supabase
                 .from("agents")
@@ -303,19 +344,35 @@ const AgentCoursesPage: React.FC = () => {
       });
 
       // Step 3: Get sponsor's active plans
-      const { data: sponsorPlans, error: plansError } = await supabase
+      // Step 3: Get sponsor's pairing_limits (not plan IDs)
+      const { data: sponsorPlansData, error: plansError } = await supabase
         .from("agent_plans")
-        .select("plan_id")
+        .select(
+          `
+    plan_id,
+    plans!inner (
+      plan_chain_settings (
+        pairing_limit
+      )
+    )
+  `,
+        )
         .eq("agent_id", sponsorAgent.id)
         .eq("is_active", true);
 
       if (plansError) throw plansError;
 
-      const sponsorPlanIds = sponsorPlans?.map((p) => p.plan_id) || [];
+      const sponsorPairingLimits = [
+        ...new Set(
+          sponsorPlansData
+            ?.map((p: any) => p.plans?.plan_chain_settings?.pairing_limit) // ✅ REMOVED [0]
+            .filter((limit: number | undefined) => limit !== undefined),
+        ),
+      ];
 
-      if (sponsorPlanIds.length === 0) {
+      if (sponsorPairingLimits.length === 0) {
         setError(
-          "Your sponsor hasn't purchased any plans yet. Please contact them."
+          "Your sponsor hasn't purchased any plans yet. Please contact them.",
         );
         setFilteredCourses([]);
         setShowAllPlans(true);
@@ -324,15 +381,16 @@ const AgentCoursesPage: React.FC = () => {
       }
 
       // Filter to show only sponsor's plans that user hasn't purchased
+      // ✅ Filter by pairing_limit instead of plan_id
       const filtered = courses.filter(
         (course) =>
-          sponsorPlanIds.includes(course.id) &&
-          !purchasedPlanIds.includes(course.id)
+          sponsorPairingLimits.includes(course.pairing_limit) &&
+          !purchasedPlanIds.includes(course.id),
       );
 
       if (filtered.length === 0) {
         setError(
-          "You have already purchased all available plans from this sponsor."
+          "You have already purchased all available plans from this sponsor.",
         );
         setFilteredCourses([]);
         setShowAllPlans(true);
@@ -381,12 +439,17 @@ const AgentCoursesPage: React.FC = () => {
 
   // 🔥 UPDATED: Get display courses - filter based on agent status
   const getDisplayCourses = () => {
+    console.log("🔍 isExistingAgent:", isExistingAgent);
+    console.log("🔍 sponsorPairingLimits:", sponsorPairingLimits);
+    console.log("🔍 showAllPlans:", showAllPlans);
+    console.log("🔍 courses:", courses);
+    console.log("🔍 purchasedPlanIds:", purchasedPlanIds);
     let baseCourses = courses;
 
-    // If existing agent, show only sponsor's plans
-    if (isExistingAgent && sponsorPlans.length > 0) {
+    // ✅ If existing agent, show plans with sponsor's pairing_limits
+    if (isExistingAgent && sponsorPairingLimits.length > 0) {
       baseCourses = courses.filter((course) =>
-        sponsorPlans.includes(course.id)
+        sponsorPairingLimits.includes(course.pairing_limit),
       );
     } else if (!showAllPlans) {
       // For new users with referral code
@@ -395,7 +458,7 @@ const AgentCoursesPage: React.FC = () => {
 
     // Filter out already purchased plans
     return baseCourses.filter(
-      (course) => !purchasedPlanIds.includes(course.id)
+      (course) => !purchasedPlanIds.includes(course.id),
     );
   };
 
@@ -555,8 +618,8 @@ const AgentCoursesPage: React.FC = () => {
               {purchasedPlanIds.length > 0
                 ? "You have already purchased all available plans"
                 : isExistingAgent
-                ? "Your sponsor hasn't purchased any plans yet"
-                : "Check back soon for new courses"}
+                  ? "Your sponsor hasn't purchased any plans yet"
+                  : "Check back soon for new courses"}
             </p>
             <button
               onClick={() => {
