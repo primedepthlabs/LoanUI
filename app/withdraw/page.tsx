@@ -100,7 +100,7 @@ export default function WithdrawPage() {
       const totalPaid =
         paidCommissions?.reduce(
           (sum, c) => sum + Number(c.commission_amount),
-          0
+          0,
         ) || 0;
 
       // Get total already withdrawn
@@ -125,7 +125,7 @@ export default function WithdrawPage() {
         pendingReqs?.reduce((sum, w) => sum + Number(w.amount), 0) || 0;
 
       setAvailableBalance(
-        totalPaid + totalCashback - totalWithdrawn - totalPending
+        totalPaid + totalCashback - totalWithdrawn - totalPending,
       );
 
       setPendingWithdrawals(totalPending);
@@ -351,10 +351,10 @@ export default function WithdrawPage() {
                           req.status === "completed"
                             ? "bg-green-100 text-green-700"
                             : req.status === "approved"
-                            ? "bg-blue-100 text-blue-700"
-                            : req.status === "rejected"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-yellow-100 text-yellow-700"
+                              ? "bg-blue-100 text-blue-700"
+                              : req.status === "rejected"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-yellow-100 text-yellow-700"
                         }`}
                       >
                         {req.status}

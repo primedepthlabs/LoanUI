@@ -218,12 +218,10 @@ export default function AgentDashboard() {
 
       setCommissions(commissionsData || []);
 
-      // Calculate stats
       const totalEarnings =
-        commissionsData?.reduce(
-          (sum, c) => sum + Number(c.commission_amount),
-          0,
-        ) || 0;
+        commissionsData
+          ?.filter((c) => c.status !== "cancelled")
+          .reduce((sum, c) => sum + Number(c.commission_amount), 0) || 0;
 
       const pendingEarnings =
         commissionsData
@@ -271,7 +269,7 @@ export default function AgentDashboard() {
         .eq("sponsor_id", agentData.id);
 
       setStats({
-        totalEarnings: totalEarnings - cancelledEarnings + totalCashback,
+        totalEarnings: totalEarnings + totalCashback,
         instantCashback: totalCashback,
         pendingEarnings,
         paidEarnings,

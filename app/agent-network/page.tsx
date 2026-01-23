@@ -227,27 +227,30 @@ export default function AgentNetworkPage() {
         agentPlansMap.get(ap.agent_id)!.push(ap);
       });
 
-      // ✅ Fetch commissions across ALL plans with this pairing limit
-      const plansWithPairingLimit = userPlans.filter((p: any) => {
-        const planPairingLimit = p.settings?.pairing_limit || 2;
-        return planPairingLimit === pairingLimit;
-      });
-      const planIds = plansWithPairingLimit.map((p: any) => p.plan_id);
+      // ✅ Fetch commissions for ALL plans (not just current pairing limit)
+      const allPlanIds = userPlans.map((p: any) => p.plan_id);
 
       const { data: commissionsData, error: commissionsError } = await supabase
         .from("commissions")
         .select("from_agent_id, commission_amount, status")
         .eq("agent_id", currentAgentId)
-        .in("plan_id", planIds)
+
         .in("status", ["paid", "pending"]);
-
-      console.log("💰 Commissions:", { commissionsData, commissionsError });
-
+      console.log("💰 ALL Commissions Data:", commissionsData);
+      console.log("❌ Commission Error:", commissionsError);
+      console.log("🔑 Current Agent ID:", currentAgentId);
       const commMap = new Map<string, number>();
       commissionsData?.forEach((c) => {
+        console.log(
+          `Adding commission: ${c.from_agent_id} = ₹${c.commission_amount}`,
+        );
+
         const current = commMap.get(c.from_agent_id) || 0;
         commMap.set(c.from_agent_id, current + Number(c.commission_amount));
       });
+      console.log("💰 Final Commission Map:", Object.fromEntries(commMap));
+      console.log("👥 Map has these agent IDs:", Array.from(commMap.keys()));
+
       setAgentCommissions(commMap);
 
       // Build tree
@@ -702,6 +705,18 @@ export default function AgentNetworkPage() {
                   </p>
                 </div>
               </div>
+              {(() => {
+                console.log("🔍 Clicked Agent ID:", selectedAgent.agent_id);
+                console.log(
+                  "💰 All Commissions:",
+                  Object.fromEntries(agentCommissions),
+                );
+                console.log(
+                  "✅ Match Found?",
+                  agentCommissions.has(selectedAgent.agent_id),
+                );
+                return null;
+              })()}
 
               {agentCommissions.has(selectedAgent.agent_id) && (
                 <div className="pt-4 border-t border-gray-200">

@@ -138,16 +138,15 @@ async function buildSponsorChain(
   let depth = 0;
 
   while (currentSponsorId && depth < maxDepth) {
-    // Check if sponsor has this plan
-    const { data: sponsorPlan } = await supabase
-      .from("agent_plans")
-      .select("id")
-      .eq("agent_id", currentSponsorId)
-      .eq("plan_id", planId)
-      .eq("is_active", true)
-      .maybeSingle();
+    // Check if sponsor is active
+    const { data: sponsorAgent } = await supabase
+      .from("agents")
+      .select("id, is_active")
+      .eq("id", currentSponsorId)
+      .single();
 
-    if (sponsorPlan) {
+    // Add to chain if sponsor is active
+    if (sponsorAgent?.is_active) {
       chain.push(currentSponsorId);
     }
 
