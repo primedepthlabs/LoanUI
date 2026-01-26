@@ -140,8 +140,8 @@ function CartContent() {
         if (!session?.user) {
           router.push(
             `/login?returnTo=${encodeURIComponent(
-              window.location.pathname + window.location.search
-            )}`
+              window.location.pathname + window.location.search,
+            )}`,
           );
         } else {
           // 🔥 Check if user is an existing agent
@@ -150,7 +150,7 @@ function CartContent() {
       } catch (err) {
         console.error("Auth check failed:", err);
         setErrorMsg(
-          "Unable to verify session. Please refresh or log in again."
+          "Unable to verify session. Please refresh or log in again.",
         );
       } finally {
         setAuthLoading(false);
@@ -205,7 +205,7 @@ function CartContent() {
   }, [showPaymentModal, paymentSettings]);
 
   const handlePaymentScreenshotChange = (
-    e: React.ChangeEvent<HTMLInputElement>
+    e: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -229,7 +229,7 @@ function CartContent() {
   // Upload payment screenshot to storage
   const uploadPaymentScreenshot = async (
     file: File,
-    userId: string
+    userId: string,
   ): Promise<UploadResult> => {
     try {
       const fileExtension = file.name.split(".").pop();
@@ -289,26 +289,39 @@ function CartContent() {
 
         sponsorIdToUse = sponsorAgent.id;
 
-        // Step 2: Check if sponsor has this plan
-        const { data: sponsorPlan, error: planCheckError } = await supabase
-          .from("agent_plans")
-          .select("id")
-          .eq("agent_id", sponsorAgent.id)
+        // Step 2: Check if sponsor has ANY plan with same pairing_limit
+        const { data: selectedPlanSettings } = await supabase
+          .from("plan_chain_settings")
+          .select("pairing_limit")
           .eq("plan_id", selectedPlan.id)
-          .eq("is_active", true)
-          .maybeSingle();
+          .single();
 
-        if (planCheckError) {
-          console.error("Plan check error:", planCheckError);
-          setErrorMsg("Failed to validate sponsor's plan. Please try again.");
+        const { data: sponsorPlans } = await supabase
+          .from("agent_plans")
+          .select("plan_id")
+          .eq("agent_id", sponsorAgent.id)
+          .eq("is_active", true);
+
+        if (!sponsorPlans || sponsorPlans.length === 0) {
+          setErrorMsg("Your sponsor has no active plans.");
           setIsProcessing(false);
           return;
         }
 
-        if (!sponsorPlan) {
-          setErrorMsg(
-            "Your sponsor doesn't have this plan. Please choose a different plan or contact your sponsor."
+        const { data: sponsorPlanSettings } = await supabase
+          .from("plan_chain_settings")
+          .select("pairing_limit")
+          .in(
+            "plan_id",
+            sponsorPlans.map((p) => p.plan_id),
           );
+
+        const hasSamePairingLimit = sponsorPlanSettings?.some(
+          (s) => s.pairing_limit === selectedPlanSettings?.pairing_limit,
+        );
+
+        if (!hasSamePairingLimit) {
+          setErrorMsg("Your sponsor doesn't have a compatible plan.");
           setIsProcessing(false);
           return;
         }
@@ -326,7 +339,7 @@ function CartContent() {
       // 1. Upload payment screenshot
       const uploadResult = await uploadPaymentScreenshot(
         paymentScreenshot,
-        user.id
+        user.id,
       );
 
       if (!uploadResult.success || !uploadResult.publicUrl) {
@@ -360,7 +373,7 @@ function CartContent() {
           data.id,
           currentAgentId,
           selectedPlan.id,
-          selectedPlan.amount
+          selectedPlan.amount,
         );
 
         if (commissionResult.success) {
@@ -368,7 +381,7 @@ function CartContent() {
         } else {
           console.error(
             "⚠️ Commission calculation failed:",
-            commissionResult.message
+            commissionResult.message,
           );
           // Don't block payment - admin can recalculate later
         }
@@ -390,7 +403,7 @@ function CartContent() {
       setErrorMsg(
         error instanceof Error
           ? error.message
-          : "Failed to submit payment. Please try again."
+          : "Failed to submit payment. Please try again.",
       );
     }
   };
@@ -437,8 +450,8 @@ function CartContent() {
     if (!user) {
       router.push(
         `/login?returnTo=${encodeURIComponent(
-          window.location.pathname + window.location.search
-        )}`
+          window.location.pathname + window.location.search,
+        )}`,
       );
       return;
     }
